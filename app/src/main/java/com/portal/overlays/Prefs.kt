@@ -94,6 +94,15 @@ class Prefs(context: Context) {
         get() = bool("stripShowNetwork", true); set(v) = setBool("stripShowNetwork", v)
     var stripShowNtfy: Boolean
         get() = bool("stripShowNtfy", true); set(v) = setBool("stripShowNtfy", v)
+    /** Animated dot when audio/video is playing (reads the active media session). */
+    var stripShowStreaming: Boolean
+        get() = bool("stripShowStreaming", false); set(v) = setBool("stripShowStreaming", v)
+    /** Green/red dot for an active VPN tunnel (generic — Android won't reveal which VPN app). */
+    var stripShowVpn: Boolean
+        get() = bool("stripShowVpn", false); set(v) = setBool("stripShowVpn", v)
+    /** Wi-Fi signal bars; tap to show the device IP. */
+    var stripShowWifi: Boolean
+        get() = bool("stripShowWifi", false); set(v) = setBool("stripShowWifi", v)
 
     // ---- banners ----------------------------------------------------------
     var bannerSeconds: Int
@@ -127,6 +136,9 @@ class Prefs(context: Context) {
         get() = bool("navControlCenter", false); set(v) = setBool("navControlCenter", v)
     var navScreenshot: Boolean
         get() = bool("navScreenshot", true); set(v) = setBool("navScreenshot", v)
+    /** Lock button — immediately locks the display (accessibility GLOBAL_ACTION_LOCK_SCREEN). */
+    var navLock: Boolean
+        get() = bool("navLock", false); set(v) = setBool("navLock", v)
     var navVertical: Boolean
         get() = bool("navVertical", false); set(v) = setBool("navVertical", v)
     /** Countdown seconds before a screenshot is taken (0 = instant). */

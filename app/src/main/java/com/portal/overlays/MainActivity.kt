@@ -599,12 +599,18 @@ private fun NotifyTab(context: android.content.Context, prefs: Prefs, accent: Co
             var w by remember { mutableStateOf(prefs.stripShowWeather) }
             var b by remember { mutableStateOf(prefs.stripShowBattery) }
             var net by remember { mutableStateOf(prefs.stripShowNetwork) }
+            var stream by remember { mutableStateOf(prefs.stripShowStreaming) }
+            var vpn by remember { mutableStateOf(prefs.stripShowVpn) }
+            var wifi by remember { mutableStateOf(prefs.stripShowWifi) }
             var n by remember { mutableStateOf(prefs.stripShowNtfy) }
             Toggle("Clock", c, accent) { c = it; prefs.stripShowClock = it; refresh() }
             Toggle("Date", d, accent) { d = it; prefs.stripShowDate = it; refresh() }
             Toggle("Weather", w, accent) { w = it; prefs.stripShowWeather = it; refresh() }
             Toggle("Battery", b, accent) { b = it; prefs.stripShowBattery = it; refresh() }
             Toggle("Network speed", net, accent) { net = it; prefs.stripShowNetwork = it; refresh() }
+            Toggle("Streaming indicator", stream, accent) { stream = it; prefs.stripShowStreaming = it; refresh() }
+            Toggle("VPN status dot", vpn, accent) { vpn = it; prefs.stripShowVpn = it; refresh() }
+            Toggle("Wi-Fi signal (tap for IP)", wifi, accent) { wifi = it; prefs.stripShowWifi = it; refresh() }
             Toggle("ntfy status", n, accent) { n = it; prefs.stripShowNtfy = it; refresh() }
         }
     }
@@ -624,6 +630,7 @@ private fun NavTab(context: android.content.Context, prefs: Prefs, accent: Color
         var rec by remember { mutableStateOf(prefs.navRecents) }
         var cc by remember { mutableStateOf(prefs.navControlCenter) }
         var shot by remember { mutableStateOf(prefs.navScreenshot) }
+        var lock by remember { mutableStateOf(prefs.navLock) }
         var vert by remember { mutableStateOf(prefs.navVertical) }
         Toggle("Show navigation cluster", on, accent) { on = it; prefs.navEnabled = it; refresh() }
         if (on) {
@@ -632,6 +639,7 @@ private fun NavTab(context: android.content.Context, prefs: Prefs, accent: Color
             Toggle("Recents  ▢", rec, accent) { rec = it; prefs.navRecents = it; refresh() }
             Toggle("Control Center  ⌄", cc, accent) { cc = it; prefs.navControlCenter = it; refresh() }
             Toggle("Screenshot  📸", shot, accent) { shot = it; prefs.navScreenshot = it; refresh() }
+            Toggle("Lock screen  🔒", lock, accent) { lock = it; prefs.navLock = it; refresh() }
             Segmented(listOf("Horizontal", "Vertical"), if (vert) 1 else 0, accent) {
                 vert = it == 1; prefs.navVertical = it == 1; refresh()
             }

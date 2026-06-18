@@ -1,6 +1,6 @@
 {
-  "versionCode": 3,
-  "versionName": "1.2",
-  "apkUrl": "https://github.com/GodricTM/PortalOverlays/releases/download/v1.2/PortalOverlays-v1.2-release.apk",
-  "notes": "v1.2 — In-app updater. The update dialog now downloads and installs the new build directly instead of opening a browser: silently when the optional shell daemon is running (started by enable_portal_permissions), or via a one-tap system installer otherwise. The update notification opens the app to update in-app. See CHANGELOG.md for details."
+  "versionCode": 4,
+  "versionName": "1.3",
+  "apkUrl": "https://github.com/GodricTM/PortalOverlays/releases/download/v1.3/PortalOverlays-v1.3-release.apk",
+  "notes": "v1.3 — Status strip + lock. Each strip element now has a subtle divider, plus three live indicators: a streaming dot that pulses while media plays, a VPN status dot (green when a tunnel is active), and Wi-Fi signal bars (tap to show the device IP). Adds an optional nav-cluster lock button that locks the display immediately via the accessibility service. See CHANGELOG.md for details."
 }

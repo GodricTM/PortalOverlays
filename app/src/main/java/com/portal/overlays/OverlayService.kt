@@ -25,8 +25,13 @@ import android.media.projection.MediaProjectionManager
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
+import android.animation.ObjectAnimator
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.TrafficStats
+import android.net.wifi.WifiManager
 import android.os.BatteryManager
+import android.text.format.Formatter
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
@@ -92,7 +97,17 @@ class OverlayService : Service() {
     private var noteView: View? = null
     private var noteText: TextView? = null
     private var stripView: View? = null
-    private var stripText: TextView? = null
+    // Componentised status-strip elements (each separated by a thin divider).
+    private var stripClock: TextView? = null
+    private var stripDate: TextView? = null
+    private var stripWeather: TextView? = null
+    private var stripBattery: TextView? = null
+    private var stripNetwork: TextView? = null
+    private var stripNtfy: TextView? = null
+    private var stripStreamingDot: View? = null
+    private var streamingAnim: ObjectAnimator? = null
+    private var stripVpnDot: View? = null
+    private var stripWifiBars: LinearLayout? = null
     private var navView: View? = null
 
     /** Draggable widgets paired with their layout params, so they can be re-clamped on rotation. */
@@ -203,12 +218,10 @@ class OverlayService : Service() {
         if (prefs.clockEnabled) showClock()
         if (prefs.weatherEnabled) showWeather()
         if (prefs.batteryEnabled) showBattery()
-        if (prefs.nowPlayingEnabled) {
-            showNowPlaying()
-            startMediaSessions()
-        } else {
-            stopMediaSessions()
-        }
+        if (prefs.nowPlayingEnabled) showNowPlaying()
+        // Listen to media sessions if either the Now Playing widget OR the strip streaming dot needs it.
+        if (prefs.nowPlayingEnabled || (prefs.stripEnabled && prefs.stripShowStreaming)) startMediaSessions()
+        else stopMediaSessions()
         if (prefs.noteEnabled) showNote()
         if (prefs.stripEnabled) showStrip()
         if (prefs.navEnabled) showNav()
@@ -254,7 +267,11 @@ class OverlayService : Service() {
         nowPlayingMiniArt = null; nowPlayingMiniGlyph = null
         nowPlayingFullArt = null; nowPlayingFullTitle = null; nowPlayingFullSubtitle = null; nowPlayingFullApp = null; nowPlayingFullPlay = null
         nowPlayingVisualizer = null
-        noteText = null; stripText = null
+        noteText = null
+        streamingAnim?.cancel(); streamingAnim = null
+        stripClock = null; stripDate = null; stripWeather = null; stripBattery = null
+        stripNetwork = null; stripNtfy = null
+        stripStreamingDot = null; stripVpnDot = null; stripWifiBars = null
     }
 
     private fun stopEverything() {
@@ -648,6 +665,7 @@ class OverlayService : Service() {
         if (prefs.navRecents) add("▢") { NavAccessibilityService.recents() }
         if (prefs.navControlCenter) add("⌄") { NavAccessibilityService.controlCenter() }
         if (prefs.navScreenshot) add("📸") { startScreenshot(); true }
+        if (prefs.navLock) add("🔒") { NavAccessibilityService.lock() }
         if (bar.childCount == 0) return
         clampParamsToScreen(bar, lp)
         if (!safeAddView(bar, lp)) return
@@ -663,9 +681,61 @@ class OverlayService : Service() {
             background = GradientDrawable().apply { setColor(withAlpha(STRIP_BASE, prefs.overlayOpacity)) }
             setPadding(dp(20), dp(6), dp(20), dp(6))
         }
-        val text = TextView(this).apply { setTextColor(0xFFD7DCE4.toInt()); textSize = scaled(14f) }
-        bar.addView(text)
-        stripText = text
+        var first = true
+        // A thin divider before every element except the first.
+        fun sep() {
+            if (first) { first = false; return }
+            val line = View(this).apply { setBackgroundColor(0x33FFFFFF) }
+            bar.addView(line, LinearLayout.LayoutParams(dp(1), dp(16)).also { it.leftMargin = dp(14); it.rightMargin = dp(14) })
+        }
+        fun textSeg(): TextView {
+            sep()
+            val t = TextView(this).apply { setTextColor(0xFFD7DCE4.toInt()); textSize = scaled(14f) }
+            bar.addView(t); return t
+        }
+        fun dot(diameter: Int): View {
+            val v = View(this)
+            bar.addView(v, LinearLayout.LayoutParams(dp(diameter), dp(diameter)))
+            return v
+        }
+
+        if (prefs.stripShowClock) stripClock = textSeg()
+        if (prefs.stripShowDate) stripDate = textSeg()
+        if (prefs.stripShowWeather) stripWeather = textSeg()
+        if (prefs.stripShowBattery) stripBattery = textSeg()
+        if (prefs.stripShowNetwork) stripNetwork = textSeg()
+        if (prefs.stripShowStreaming) {
+            sep()
+            stripStreamingDot = dot(10)
+            val label = TextView(this).apply {
+                text = "▶"; setTextColor(0xFF8A919D.toInt()); textSize = scaled(12f)
+                setPadding(dp(6), 0, 0, 0)
+            }
+            bar.addView(label)
+        }
+        if (prefs.stripShowVpn) {
+            sep()
+            stripVpnDot = dot(10)
+            bar.addView(TextView(this).apply {
+                text = "VPN"; setTextColor(0xFFB7C0CC.toInt()); textSize = scaled(12f)
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL); setPadding(dp(6), 0, 0, 0)
+            })
+        }
+        if (prefs.stripShowWifi) {
+            sep()
+            // Four ascending bars; filled count reflects signal level. Tap shows the IP.
+            val bars = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM }
+            val heights = intArrayOf(5, 8, 11, 14)
+            heights.forEach { h ->
+                val b = View(this).apply { setBackgroundColor(WIFI_DIM) }
+                bars.addView(b, LinearLayout.LayoutParams(dp(3), dp(h)).also { it.rightMargin = dp(2) })
+            }
+            bars.setOnClickListener { showBanner("Wi-Fi", wifiInfoString()) }
+            bar.addView(bars)
+            stripWifiBars = bars
+        }
+        if (prefs.stripShowNtfy) stripNtfy = textSeg()
+
         val lp = baseParams(height = dp(36)).apply {
             width = WindowManager.LayoutParams.MATCH_PARENT
             gravity = Gravity.START or if (prefs.stripPosition == "top") Gravity.TOP else Gravity.BOTTOM
@@ -801,17 +871,85 @@ class OverlayService : Service() {
         if (batteryText != null) batteryText?.text = batteryString()
         noteText?.text = prefs.noteText.ifBlank { "(empty note — set it in the app)" }
 
-        stripText?.let {
-            val parts = mutableListOf<String>()
-            if (prefs.stripShowClock) parts += timeFmt.format(now)
-            if (prefs.stripShowDate) parts += dateFmt.format(now)
-            if (prefs.stripShowWeather && lastWeather.isNotBlank()) parts += lastWeather
-            if (prefs.stripShowBattery) parts += batteryString()
-            if (prefs.stripShowNetwork) parts += networkSpeedString()
-            if (prefs.stripShowNtfy) parts += if (prefs.topic.isBlank()) "no topic"
-                else if (connected) "ntfy connected" else "ntfy reconnecting…"
-            it.text = parts.joinToString("    •    ")
+        stripClock?.text = timeFmt.format(now)
+        stripDate?.text = dateFmt.format(now)
+        stripWeather?.text = lastWeather.ifBlank { "…" }
+        stripBattery?.text = batteryString()
+        stripNetwork?.text = networkSpeedString()
+        stripNtfy?.text = if (prefs.topic.isBlank()) "no topic"
+            else if (connected) "ntfy connected" else "ntfy reconnecting…"
+        updateStripIndicators()
+    }
+
+    /** Refresh the live status dots/bars (streaming, VPN, Wi-Fi). Called from the 1s tick. */
+    private fun updateStripIndicators() {
+        stripStreamingDot?.let { dotView ->
+            if (isMediaPlaying()) {
+                dotView.background = circle(prefs.accentColor)
+                if (streamingAnim == null) {
+                    streamingAnim = ObjectAnimator.ofFloat(dotView, "alpha", 1f, 0.25f).apply {
+                        duration = 750; repeatMode = ObjectAnimator.REVERSE
+                        repeatCount = ObjectAnimator.INFINITE; start()
+                    }
+                }
+            } else {
+                streamingAnim?.cancel(); streamingAnim = null
+                dotView.alpha = 1f; dotView.background = circle(DOT_OFF)
+            }
         }
+        stripVpnDot?.background = circle(if (isVpnActive()) DOT_ON else VPN_OFF)
+        stripWifiBars?.let { bars ->
+            val level = wifiLevel()
+            for (i in 0 until bars.childCount) {
+                bars.getChildAt(i).setBackgroundColor(if (level > i) WIFI_ON else WIFI_DIM)
+            }
+        }
+    }
+
+    private fun isMediaPlaying(): Boolean =
+        activeMediaController?.playbackState?.state == PlaybackState.STATE_PLAYING
+
+    private fun isVpnActive(): Boolean {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
+        return runCatching {
+            cm.allNetworks.any { cm.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true }
+        }.getOrDefault(false)
+    }
+
+    /** Wi-Fi signal as 0..4 bars, or -1 when not connected to Wi-Fi. */
+    @Suppress("DEPRECATION")
+    private fun wifiLevel(): Int {
+        val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager ?: return -1
+        return runCatching {
+            val info = wm.connectionInfo ?: return -1
+            if (info.networkId == -1) return -1
+            WifiManager.calculateSignalLevel(info.rssi, 5).coerceIn(0, 4)
+        }.getOrDefault(-1)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun wifiIp(): String? {
+        val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+        val ipInt = wm?.connectionInfo?.ipAddress ?: 0
+        if (ipInt != 0) return Formatter.formatIpAddress(ipInt)
+        return runCatching {
+            java.net.NetworkInterface.getNetworkInterfaces().toList()
+                .flatMap { it.inetAddresses.toList() }
+                .firstOrNull { !it.isLoopbackAddress && it is java.net.Inet4Address }?.hostAddress
+        }.getOrNull()
+    }
+
+    private fun wifiInfoString(): String {
+        val level = wifiLevel()
+        val quality = when {
+            level < 0 -> "not connected"
+            level >= 4 -> "excellent"
+            level == 3 -> "good"
+            level == 2 -> "fair"
+            level == 1 -> "weak"
+            else -> "very weak"
+        }
+        return "IP: ${wifiIp() ?: "unknown"}\nSignal: $quality"
     }
 
     private fun batteryString(): String {
@@ -1153,6 +1291,9 @@ class OverlayService : Service() {
         private val NOTE_BASE = 0xFFFFE08A.toInt()
         private val DOT_ON = 0xFF34C759.toInt()
         private val DOT_OFF = 0xFF5A6172.toInt()
+        private val VPN_OFF = 0xFFE5484D.toInt()
+        private val WIFI_ON = 0xFFD7DCE4.toInt()
+        private const val WIFI_DIM = 0x33FFFFFF
 
         fun send(context: Context, action: String, kind: String? = null) {
             val i = Intent(context, OverlayService::class.java).setAction(action)

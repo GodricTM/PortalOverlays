@@ -45,5 +45,7 @@ class NavAccessibilityService : AccessibilityService() {
             val s = instance ?: return false
             s.swipeDownFromTop(); return true
         }
+        /** Lock the display immediately. GLOBAL_ACTION_LOCK_SCREEN is available on API 28+. */
+        fun lock(): Boolean = instance?.performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN) ?: false
     }
 }
