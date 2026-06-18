@@ -8,6 +8,7 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Runs on both touch Portals and the TV-stick Portal TV (leanback). -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
@@ -78,6 +79,11 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <receiver
+            android:name=".UpdateInstallReceiver"
+            android:enabled="true"
+            android:exported="false" />
     </application>
 
 </manifest>

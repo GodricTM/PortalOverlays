@@ -315,28 +315,29 @@ private fun UpdateResultDialog(result: UpdateResult, accent: Color, onDismiss: (
     val context = LocalContext.current
     when (result) {
         is UpdateResult.Available -> {
+            var status by remember { mutableStateOf<String?>(null) }
             val notes = if (result.info.notes.length > 600) result.info.notes.substring(0, 600) + "\n…" else result.info.notes
             androidx.compose.material3.AlertDialog(
-                onDismissRequest = onDismiss,
+                onDismissRequest = { if (status == null) onDismiss() },
                 title = { Text("Update available: v${result.info.versionName}", color = TEXT) },
                 text = {
                     Text(
-                        "Installed: v${result.installedVersionName}\nLatest:    v${result.info.versionName}\n\n$notes",
-                        color = MUTED
+                        buildString {
+                            append("Installed: v${result.installedVersionName}\nLatest:    v${result.info.versionName}\n\n$notes")
+                            status?.let { append("\n\n$it") }
+                        },
+                        color = if (status != null) accent else MUTED
                     )
                 },
                 confirmButton = {
-                    androidx.compose.material3.TextButton(onClick = {
-                        onDismiss()
-                        runCatching {
-                            val i = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(result.info.apkUrl))
-                            i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                            context.startActivity(i)
-                        }
-                    }) { Text("Open on GitHub", color = accent) }
+                    if (status == null) androidx.compose.material3.TextButton(onClick = {
+                        UpdateChecker.installUpdate(context, result.info) { status = it }
+                    }) { Text("Update now", color = accent) }
                 },
                 dismissButton = {
-                    androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Later", color = MUTED) }
+                    androidx.compose.material3.TextButton(onClick = onDismiss) {
+                        Text(if (status == null) "Later" else "Close", color = MUTED)
+                    }
                 },
                 containerColor = PANEL
             )

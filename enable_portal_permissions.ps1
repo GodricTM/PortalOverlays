@@ -1,5 +1,6 @@
 param(
-    [switch]$AccessibilityOnly
+    [switch]$AccessibilityOnly,
+    [switch]$NoDaemon
 )
 
 $ErrorActionPreference = "Continue"
@@ -76,6 +77,22 @@ Show-Status $before "before"
 if (-not $AccessibilityOnly) {
     Step "Granting draw-over-apps" { & adb -s $serial shell appops set $Package SYSTEM_ALERT_WINDOW allow }
     Step "Allowing notification listener" { & adb -s $serial shell cmd notification allow_listener $NotificationListener }
+    Step "Allowing in-app installs (updater)" { & adb -s $serial shell appops set $Package REQUEST_INSTALL_PACKAGES allow }
+
+    if (-not $NoDaemon) {
+        $installd = Join-Path $PSScriptRoot "installd.sh"
+        if (Test-Path $installd) {
+            Step "Starting silent-install daemon" {
+                & adb -s $serial push "$installd" /data/local/tmp/po_installd.sh | Out-Null
+                # Detached so it keeps running after this adb shell returns. Dies on reboot;
+                # re-run this script to restart it. Until then the app uses the one-tap installer.
+                & adb -s $serial shell "pkill -f po_installd.sh 2>/dev/null; nohup sh /data/local/tmp/po_installd.sh </dev/null >/dev/null 2>&1 &"
+                $global:LASTEXITCODE = 0
+            }
+        } else {
+            Write-Host "   (installd.sh not found next to this script - skipping silent-install daemon)" -ForegroundColor DarkYellow
+        }
+    }
 }
 
 Step "Writing accessibility service setting" {
@@ -90,10 +107,25 @@ Start-Sleep -Seconds 3
 $after = Get-Status $serial
 Show-Status $after "after "
 
+$daemonAlive = $false
+if (-not $AccessibilityOnly -and -not $NoDaemon) {
+    $hb = (& adb -s $serial shell cat /sdcard/Android/data/$Package/files/installq/.heartbeat 2>$null).Trim()
+    if ($hb -match '^\d+$') {
+        $age = [int]([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - [int64]$hb)
+        $daemonAlive = ($age -ge 0 -and $age -le 20)
+    }
+    Write-Host ("   daemon :  silent-install={0}" -f $daemonAlive.ToString().ToLower())
+}
+
 if ($after.Alert -and $after.A11y -and $after.Notif) {
     Write-Host ""
     Write-Host "All three permissions granted and accessibility service is bound." -ForegroundColor Green
     Write-Host "Open Portal Overlays and tap Overlays running." -ForegroundColor Green
+    if ($daemonAlive) {
+        Write-Host "Silent-install daemon is running - in-app updates will install with no dialog (until reboot)." -ForegroundColor Green
+    } else {
+        Write-Host "Silent-install daemon not detected - in-app updates will use the one-tap installer instead." -ForegroundColor DarkYellow
+    }
 } else {
     Write-Host ""
     Write-Host "Not everything took. Items still missing:" -ForegroundColor Red

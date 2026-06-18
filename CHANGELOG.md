@@ -5,6 +5,19 @@ All notable changes to Portal Overlays are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2] - 2026-06-18
+
+### Added
+- **In-app updater.** The "Update available" dialog now downloads and installs the new build
+  directly — no more bouncing to a browser. It installs **silently** when the optional shell
+  daemon is running, and otherwise falls back to a **one-tap** system installer.
+  - `installd.sh` — a shell-user (uid 2000) daemon started over ADB by `enable_portal_permissions`;
+    it watches a queue folder and `pm install`s dropped APKs with no dialog. Doesn't survive a
+    reboot (re-run the helper to restart it); the app falls back to PackageInstaller meanwhile.
+  - `enable_portal_permissions` now also grants `REQUEST_INSTALL_PACKAGES`, starts the daemon, and
+    reports whether silent install is live (`-NoDaemon` to skip).
+- The update notification now opens the app to update in-app instead of opening GitHub.
+
 ## [1.1] - 2026-06-18
 
 ### Added

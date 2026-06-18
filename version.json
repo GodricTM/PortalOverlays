@@ -1,6 +1,6 @@
 {
-  "versionCode": 2,
-  "versionName": "1.1",
-  "apkUrl": "https://github.com/GodricTM/PortalOverlays/releases/download/v1.1/PortalOverlays-v1.1-release.apk",
-  "notes": "v1.1 — Portal TV support (proper leanback banner; now compatible across every Portal model) and a big stability fix: the app no longer crashes when \"Draw over other apps\" is disabled. Adds a first-launch permission walkthrough for users who didn't run the enable_portal_permissions helper, plus an in-app accessibility shortcut. See CHANGELOG.md for details."
+  "versionCode": 3,
+  "versionName": "1.2",
+  "apkUrl": "https://github.com/GodricTM/PortalOverlays/releases/download/v1.2/PortalOverlays-v1.2-release.apk",
+  "notes": "v1.2 — In-app updater. The update dialog now downloads and installs the new build directly instead of opening a browser: silently when the optional shell daemon is running (started by enable_portal_permissions), or via a one-tap system installer otherwise. The update notification opens the app to update in-app. See CHANGELOG.md for details."
 }

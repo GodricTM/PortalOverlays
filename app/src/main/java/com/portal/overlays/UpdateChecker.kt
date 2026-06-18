@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInstaller
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
@@ -13,6 +14,7 @@ import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import org.json.JSONObject
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
@@ -75,6 +77,60 @@ object UpdateChecker {
         }
     }
 
+    /**
+     * Download the advertised APK and install it — fully in-app. Uses the silent [InstallDaemon] when
+     * it's running, otherwise the one-tap [PackageInstaller] flow (the system "Install" confirmation,
+     * handled by [UpdateInstallReceiver]). [status] is invoked on the main thread with progress text.
+     */
+    fun installUpdate(context: Context, info: UpdateInfo, status: (String) -> Unit) {
+        status("Downloading update…")
+        io.execute {
+            try {
+                val apk = File(context.cacheDir, "overlays-update.apk")
+                download(info.apkUrl, apk)
+                if (InstallDaemon.isAvailable(context)) {
+                    main.post { status("Installing silently…") }
+                    val ok = InstallDaemon.install(context, apk, "overlays-update")
+                    if (ok) { main.post { status("Updated — reopening shortly") }; return@execute }
+                    // Daemon was up but the install failed — fall through to the system installer.
+                    main.post { status("Opening installer…") }
+                    commit(context, apk)
+                } else {
+                    main.post { status("Opening installer — tap Install") }
+                    commit(context, apk)
+                }
+            } catch (t: Throwable) {
+                main.post { status("Update failed: ${t.message ?: t.javaClass.simpleName}") }
+            }
+        }
+    }
+
+    /** One-tap self-update via PackageInstaller; result/PENDING_USER_ACTION go to [UpdateInstallReceiver]. */
+    private fun commit(context: Context, apk: File) {
+        val installer = context.packageManager.packageInstaller
+        val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+        val sessionId = installer.createSession(params)
+        installer.openSession(sessionId).use { session ->
+            session.openWrite("base.apk", 0, apk.length()).use { out ->
+                apk.inputStream().use { it.copyTo(out) }
+                session.fsync(out)
+            }
+            val flags = if (Build.VERSION.SDK_INT >= 31)
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+            else PendingIntent.FLAG_UPDATE_CURRENT
+            val pending = PendingIntent.getBroadcast(
+                context, sessionId, Intent(context, UpdateInstallReceiver::class.java), flags
+            )
+            session.commit(pending.intentSender)
+        }
+    }
+
+    private fun download(spec: String, dest: File) {
+        open(spec).inputStream.use { input ->
+            java.io.FileOutputStream(dest).use { input.copyTo(it) }
+        }
+    }
+
     /** Entry point used by the About tab "Check for updates" button. */
     fun check(context: Context) {
         checkForUpdate(context) { result ->
@@ -89,7 +145,8 @@ object UpdateChecker {
     /** Post a heads-up-style notification pointing at the newer build. */
     private fun notify(context: Context, info: UpdateInfo) {
         ensureChannel(context)
-        val open = Intent(Intent.ACTION_VIEW, Uri.parse(info.apkUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        // Open the app's About tab so the user can update in-app, rather than a browser.
+        val open = Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         val pi = PendingIntent.getActivity(
             context, 0, open,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -97,8 +154,8 @@ object UpdateChecker {
         val notif = NotificationCompat.Builder(context, NOTIF_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setContentTitle("Portal Overlays v${info.versionName} available")
-            .setContentText("Tap to open the release on GitHub")
-            .setStyle(NotificationCompat.BigTextStyle().bigText(info.notes.ifBlank { "Tap to open the release on GitHub." }))
+            .setContentText("Tap to update")
+            .setStyle(NotificationCompat.BigTextStyle().bigText(info.notes.ifBlank { "Tap to open Portal Overlays and update." }))
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .setContentIntent(pi)
