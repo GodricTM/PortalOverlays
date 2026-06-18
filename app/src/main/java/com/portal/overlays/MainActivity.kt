@@ -16,6 +16,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,11 +43,15 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -105,12 +110,31 @@ private fun Deck() {
     var accEnabled by remember { mutableStateOf(NavAccessibilityService.isEnabled) }
     var notifAccess by remember { mutableStateOf(notifAccessEnabled(context)) }
     var updateResult by remember { mutableStateOf<UpdateResult?>(null) }
+    // Show the first-run walkthrough until it's been dismissed once — and always re-surface it if the
+    // crash-critical overlay permission isn't granted (e.g. the user never ran the .bat/PowerShell helper).
+    var showOnboarding by remember { mutableStateOf(!prefs.onboardingDone || !Settings.canDrawOverlays(context)) }
 
     // Silent background check on launch — surfaces a system notification if newer
     LaunchedEffect(Unit) { UpdateChecker.autoCheck(context) }
 
+    // Re-read permission state every time we return to the foreground — typically right after the user
+    // grants something on a system settings page and presses Back.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                canOverlay = Settings.canDrawOverlays(context)
+                accEnabled = NavAccessibilityService.isEnabled
+                notifAccess = notifAccessEnabled(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     fun refresh() { if (running) OverlayService.send(context, OverlayService.ACTION_REFRESH) }
 
+    Box(Modifier.fillMaxSize()) {
     Row(Modifier.fillMaxSize().background(BG)) {
         Rail(tab, accent) { tab = it }
         Column(Modifier.fillMaxSize().padding(start = 28.dp, end = 36.dp, top = 24.dp, bottom = 24.dp)) {
@@ -147,8 +171,142 @@ private fun Deck() {
         }
     }
 
+        if (showOnboarding) {
+            OnboardingOverlay(
+                accent = accent,
+                canOverlay = canOverlay, accEnabled = accEnabled, notifAccess = notifAccess,
+                onDone = {
+                    prefs.onboardingDone = true
+                    showOnboarding = false
+                    // If overlays are switched on, refresh now that permission may have just been granted.
+                    if (running) OverlayService.send(context, OverlayService.ACTION_REFRESH)
+                }
+            )
+        }
+    }
+
     updateResult?.let { result ->
         UpdateResultDialog(result = result, accent = accent, onDismiss = { updateResult = null })
+    }
+}
+
+// ---- first-run permission walkthrough ------------------------------------
+
+private fun openOverlaySettings(context: android.content.Context) = runCatching {
+    context.startActivity(
+        Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    )
+}.onFailure {
+    // Some Portal builds gate the per-app overlay page; fall back to the global list.
+    runCatching {
+        context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+}
+
+private fun openNotificationListenerSettings(context: android.content.Context) = runCatching {
+    context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+}
+
+@Composable
+private fun OnboardingOverlay(
+    accent: Color, canOverlay: Boolean, accEnabled: Boolean, notifAccess: Boolean, onDone: () -> Unit
+) {
+    val context = LocalContext.current
+    Box(
+        Modifier.fillMaxSize().background(Color(0xF2070809))
+            // Consume taps on the scrim so they don't reach the control deck behind it.
+            .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {},
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            Modifier.fillMaxWidth(0.62f).clip(RoundedCornerShape(22.dp)).background(PANEL).padding(34.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Text("Finish setup", color = TEXT, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+            Text(
+                "Overlays needs a few permissions to draw on top of other apps. These are normally granted " +
+                "by enable_portal_permissions.bat from a PC — if you didn't run it, enable them here.",
+                color = MUTED, fontSize = 15.sp, modifier = Modifier.padding(top = 8.dp, bottom = 22.dp)
+            )
+
+            PermStep(
+                index = "1", title = "Draw over other apps", required = true, granted = canOverlay, accent = accent,
+                detail = "Required. Without this the overlays can't appear and the service stays idle.",
+                onEnable = { openOverlaySettings(context) }
+            )
+            Spacer(Modifier.height(12.dp))
+            PermStep(
+                index = "2", title = "Accessibility service", required = false, granted = accEnabled, accent = accent,
+                detail = "Powers the floating Back / Home / Recents navigation cluster. Portal only lets this be " +
+                    "granted from a PC — run enable_portal_permissions, or use the adb command on the Navigation tab.",
+                adbOnly = true,
+                onEnable = {}
+            )
+            Spacer(Modifier.height(12.dp))
+            PermStep(
+                index = "3", title = "Notification access", required = false, granted = notifAccess, accent = accent,
+                detail = "Lets Overlays mirror other apps' notifications and show Now Playing.",
+                onEnable = { openNotificationListenerSettings(context) }
+            )
+
+            Spacer(Modifier.height(26.dp))
+            Button(
+                onClick = onDone,
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(13.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (canOverlay) accent else PANEL2,
+                    contentColor = if (canOverlay) Color.White else MUTED
+                )
+            ) {
+                Text(if (canOverlay) "Done" else "Skip for now", fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            }
+            if (!canOverlay) Text(
+                "You can grant \"Draw over other apps\" later from the About tab — overlays stay off until then.",
+                color = FAINT, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun PermStep(
+    index: String, title: String, required: Boolean, granted: Boolean, accent: Color,
+    detail: String, onEnable: () -> Unit, adbOnly: Boolean = false
+) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(PANEL2).padding(18.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier.size(34.dp).clip(CircleShape).background(if (granted) OK else accent.copy(alpha = 0.25f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(if (granted) "✓" else index, color = if (granted) Color.White else accent,
+                fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(title, color = TEXT, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                if (required) {
+                    Spacer(Modifier.width(8.dp))
+                    Text("REQUIRED", color = accent, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                }
+            }
+            Text(detail, color = MUTED, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
+        }
+        Spacer(Modifier.width(14.dp))
+        when {
+            granted -> Text("Enabled", color = OK, fontSize = 14.sp, fontFamily = FontFamily.Monospace)
+            adbOnly -> Text("PC only", color = FAINT, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+            else -> Button(
+                onClick = onEnable, modifier = Modifier.height(46.dp),
+                shape = RoundedCornerShape(11.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Color.White)
+            ) { Text("Enable", fontSize = 14.sp, fontWeight = FontWeight.Medium) }
+        }
     }
 }
 

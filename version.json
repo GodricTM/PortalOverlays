@@ -1,6 +1,6 @@
 {
-  "versionCode": 1,
-  "versionName": "1.0",
-  "apkUrl": "https://github.com/GodricTM/PortalOverlays/releases/download/v1.0/PortalOverlays-v1.0-release.apk",
-  "notes": "First public release. A floating HUD for sideloaded Meta Portal devices — on-top widgets (clock, weather, battery, sticky note, Now Playing), ntfy.sh push banners, mirrored notifications, a status strip, a floating navigation cluster, and a fullscreen Now Playing view. No Google Play Services required. Widgets stay on-screen in both landscape and vertical orientations."
+  "versionCode": 2,
+  "versionName": "1.1",
+  "apkUrl": "https://github.com/GodricTM/PortalOverlays/releases/download/v1.1/PortalOverlays-v1.1-release.apk",
+  "notes": "v1.1 — Portal TV support (proper leanback banner; now compatible across every Portal model) and a big stability fix: the app no longer crashes when \"Draw over other apps\" is disabled. Adds a first-launch permission walkthrough for users who didn't run the enable_portal_permissions helper, plus an in-app accessibility shortcut. See CHANGELOG.md for details."
 }

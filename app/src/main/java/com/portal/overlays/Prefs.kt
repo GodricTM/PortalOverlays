@@ -21,6 +21,11 @@ class Prefs(context: Context) {
     var serviceEnabled: Boolean
         get() = bool("serviceEnabled", false); set(v) = setBool("serviceEnabled", v)
 
+    // ---- onboarding -------------------------------------------------------
+    /** First-run permission walkthrough has been completed/dismissed at least once. */
+    var onboardingDone: Boolean
+        get() = bool("onboardingDone", false); set(v) = setBool("onboardingDone", v)
+
     // ---- ntfy -------------------------------------------------------------
     var topic: String
         get() = str("topic", ""); set(v) = setStr("topic", v.trim())

@@ -33,6 +33,7 @@ import android.os.HandlerThread
 import android.os.IBinder
 import android.os.Looper
 import android.provider.MediaStore
+import android.provider.Settings
 import android.util.DisplayMetrics
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -189,6 +190,16 @@ class OverlayService : Service() {
     private fun syncFromPrefs() {
         // Rebuild every overlay so appearance changes apply cleanly.
         removeAllOverlays()
+        // Without "draw over other apps" we can't add a single overlay window — adding one throws
+        // BadTokenException and would crash the service. Stay alive, flag it in the notification, and
+        // skip everything that would draw (the listeners only produce overlays, so stop them too).
+        if (!canDrawOverlays()) {
+            updateNotification(permissionNeeded = true)
+            ntfy?.stop(); ntfy = null; connected = false
+            weather?.stop(); weather = null; weatherCfgLoaded = ""; lastWeather = ""
+            return
+        }
+        updateNotification(permissionNeeded = false)
         if (prefs.clockEnabled) showClock()
         if (prefs.weatherEnabled) showWeather()
         if (prefs.batteryEnabled) showBattery()
@@ -453,7 +464,11 @@ class OverlayService : Service() {
             height = WindowManager.LayoutParams.MATCH_PARENT
             gravity = Gravity.CENTER
         }
-        wm.addView(root, lp)
+        if (!safeAddView(root, lp)) {
+            nowPlayingFullView = null; nowPlayingVisualizer = null; nowPlayingFullArt = null
+            nowPlayingFullTitle = null; nowPlayingFullSubtitle = null; nowPlayingFullApp = null; nowPlayingFullPlay = null
+            return
+        }
         root.alpha = 0f
         root.animate().alpha(1f).setDuration(180).start()
         updateNowPlaying()
@@ -635,8 +650,8 @@ class OverlayService : Service() {
         if (prefs.navScreenshot) add("📸") { startScreenshot(); true }
         if (bar.childCount == 0) return
         clampParamsToScreen(bar, lp)
+        if (!safeAddView(bar, lp)) return
         navView = bar
-        wm.addView(bar, lp)
         draggables.add(bar to lp)
     }
 
@@ -656,8 +671,8 @@ class OverlayService : Service() {
             gravity = Gravity.START or if (prefs.stripPosition == "top") Gravity.TOP else Gravity.BOTTOM
             if (prefs.stripPosition == "top") y = dp(70)
         }
+        if (!safeAddView(bar, lp)) return
         stripView = bar
-        wm.addView(bar, lp)
         updateLiveText()
     }
 
@@ -700,7 +715,7 @@ class OverlayService : Service() {
             gravity = if (top) Gravity.TOP else Gravity.BOTTOM
             y = dp(80)
         }
-        wm.addView(container, lp)
+        if (!safeAddView(container, lp)) return
 
         val from = (if (top) -1 else 1) * dp(160).toFloat()
         container.translationY = from; container.alpha = 0f
@@ -752,7 +767,7 @@ class OverlayService : Service() {
             gravity = Gravity.CENTER
             flags = flags or WindowManager.LayoutParams.FLAG_DIM_BEHIND; dimAmount = 0.6f
         }
-        wm.addView(root, lp)
+        if (!safeAddView(root, lp)) return
         if (prefs.alertVibrate) vibrate()
         card.scaleX = 0.85f; card.scaleY = 0.85f; card.alpha = 0f
         card.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(220).start()
@@ -879,8 +894,8 @@ class OverlayService : Service() {
             width = WindowManager.LayoutParams.MATCH_PARENT; height = WindowManager.LayoutParams.MATCH_PARENT
             gravity = Gravity.CENTER
         }
+        if (!safeAddView(root, lp)) { capturing = false; return }
         countdownView = root
-        wm.addView(root, lp)
 
         val ticker = object : Runnable {
             override fun run() {
@@ -986,7 +1001,7 @@ class OverlayService : Service() {
         }
         clampParamsToScreen(view, lp)
         makeDraggable(view, view, lp, key, onTap)
-        wm.addView(view, lp)
+        if (!safeAddView(view, lp)) return view
         draggables.add(view to lp)
         return view
     }
@@ -1066,6 +1081,17 @@ class OverlayService : Service() {
         }
     }
 
+    private fun canDrawOverlays() = Settings.canDrawOverlays(this)
+
+    /**
+     * Add an overlay window without ever crashing the service. If "draw over other apps" is missing
+     * or was just revoked, [WindowManager.addView] throws (BadTokenException / SecurityException) —
+     * we swallow it and report failure so callers can bail out cleanly instead of taking the app down.
+     */
+    private fun safeAddView(view: View, lp: WindowManager.LayoutParams): Boolean = try {
+        wm.addView(view, lp); true
+    } catch (_: Exception) { false }
+
     private fun safeRemove(v: View) { try { if (v.isAttachedToWindow) wm.removeView(v) } catch (_: Exception) {} }
     private fun rounded(color: Int, radiusDp: Int) = GradientDrawable().apply { setColor(color); cornerRadius = dp(radiusDp).toFloat() }
     private fun circle(color: Int) = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(color) }
@@ -1073,7 +1099,7 @@ class OverlayService : Service() {
     private fun scaled(size: Float) = size * prefs.textScale / 100f
     private fun dp(v: Int) = (v * resources.displayMetrics.density).roundToInt()
 
-    private fun buildNotification(): Notification {
+    private fun buildNotification(permissionNeeded: Boolean = false): Notification {
         val channelId = "overlays"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             getSystemService(NotificationManager::class.java).createNotificationChannel(
@@ -1084,10 +1110,20 @@ class OverlayService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         return Notification.Builder(this, channelId)
-            .setContentTitle("Overlays running")
-            .setContentText("ntfy listener + on-top overlays")
+            .setContentTitle(if (permissionNeeded) "Overlays needs permission" else "Overlays running")
+            .setContentText(
+                if (permissionNeeded) "Tap to allow \"Draw over other apps\""
+                else "ntfy listener + on-top overlays"
+            )
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentIntent(pi).setOngoing(true).build()
+    }
+
+    /** Re-post the foreground notification so it reflects whether the overlay permission is missing. */
+    private fun updateNotification(permissionNeeded: Boolean) {
+        try {
+            getSystemService(NotificationManager::class.java)?.notify(NOTIF_ID, buildNotification(permissionNeeded))
+        } catch (_: Exception) {}
     }
 
     private data class Quad(val a: String, val b: String, val c: String, val d: Int)
