@@ -108,7 +108,13 @@ class OverlayService : Service() {
     private var streamingAnim: ObjectAnimator? = null
     private var stripVpnDot: View? = null
     private var stripWifiBars: LinearLayout? = null
+    private var stripWeek: TextView? = null
+    private var stripRain: TextView? = null
+    private var stripSun: TextView? = null
     private var navView: View? = null
+    private var tickerView: View? = null
+    private var tickerText: TextView? = null
+    private var tickerAnim: ObjectAnimator? = null
 
     /** Draggable widgets paired with their layout params, so they can be re-clamped on rotation. */
     private val draggables = mutableListOf<Pair<View, WindowManager.LayoutParams>>()
@@ -116,8 +122,11 @@ class OverlayService : Service() {
     private var ntfy: NtfyClient? = null
     private var weather: WeatherClient? = null
     private var weatherCfgLoaded: String = ""
+    private var ticker: TickerClient? = null
+    private var tickerCfgLoaded: String = ""
     @Volatile private var connected = false
     @Volatile private var lastWeather: String = ""
+    @Volatile private var weatherExtras: WeatherClient.Extras = WeatherClient.Extras()
     private var lastNetworkRxBytes = -1L
     private var lastNetworkTxBytes = -1L
     private var lastNetworkSampleMs = 0L
@@ -132,6 +141,8 @@ class OverlayService : Service() {
     private var mediaSessionsListening = false
     private var mediaAccessMissing = false
     private var activeMediaController: MediaController? = null
+    /** One-shot: when "start expanded" is on, auto-open the full card the first time playback is seen. */
+    private var npAutoExpandPending = false
 
     private val activeSessionsListener =
         MediaSessionManager.OnActiveSessionsChangedListener { controllers ->
@@ -225,6 +236,7 @@ class OverlayService : Service() {
         if (prefs.noteEnabled) showNote()
         if (prefs.stripEnabled) showStrip()
         if (prefs.navEnabled) showNav()
+        if (prefs.tickerEnabled && prefs.tickerUrl.isNotBlank()) showTicker()
 
         val topic = prefs.topic
         if (topic.isNotBlank()) {
@@ -236,15 +248,16 @@ class OverlayService : Service() {
             }
         } else { ntfy?.stop(); ntfy = null; connected = false }
 
-        val needWeather = prefs.weatherEnabled || prefs.stripShowWeather
+        val needWeather = prefs.weatherEnabled || prefs.stripShowWeather || prefs.stripShowRain || prefs.stripShowSun
         val city = prefs.weatherCity
         val cfg = "$city|${prefs.weatherFahrenheit}"
         if (needWeather && city.isNotBlank()) {
             if (weather == null || weatherCfgLoaded != cfg) {
                 weather?.stop(); weatherCfgLoaded = cfg
-                weather = WeatherClient(city, prefs.weatherFahrenheit) { temp, cond, place ->
+                weather = WeatherClient(city, prefs.weatherFahrenheit) { temp, cond, place, extras ->
                     main.post {
                         lastWeather = "$temp $cond"
+                        weatherExtras = extras
                         weatherTemp?.text = temp
                         weatherCond?.text = cond
                         weatherPlace?.text = place
@@ -252,12 +265,24 @@ class OverlayService : Service() {
                     }
                 }.also { it.start() }
             }
-        } else { weather?.stop(); weather = null; weatherCfgLoaded = ""; lastWeather = "" }
+        } else { weather?.stop(); weather = null; weatherCfgLoaded = ""; lastWeather = ""; weatherExtras = WeatherClient.Extras() }
+
+        val tickerUrl = prefs.tickerUrl
+        if (prefs.tickerEnabled && tickerUrl.isNotBlank()) {
+            if (ticker == null || tickerCfgLoaded != tickerUrl) {
+                ticker?.stop(); tickerCfgLoaded = tickerUrl
+                ticker = TickerClient(tickerUrl) { items ->
+                    main.post {
+                        tickerText?.let { it.text = items.joinToString("     •     ").ifBlank { "…" }; startTickerScroll() }
+                    }
+                }.also { it.start() }
+            }
+        } else { ticker?.stop(); ticker = null; tickerCfgLoaded = "" }
         updateLiveText()
     }
 
     private fun removeAllOverlays() {
-        listOf(clockView, weatherView, batteryView, nowPlayingView, nowPlayingFullView, noteView, stripView, navView).forEach { it?.let(::safeRemove) }
+        listOf(clockView, weatherView, batteryView, nowPlayingView, nowPlayingFullView, noteView, stripView, navView, tickerView).forEach { it?.let(::safeRemove) }
         draggables.clear()
         clockView = null; weatherView = null; batteryView = null; nowPlayingView = null; noteView = null; stripView = null; navView = null
         clockTime = null; clockDate = null; clockDot = null
@@ -272,12 +297,16 @@ class OverlayService : Service() {
         stripClock = null; stripDate = null; stripWeather = null; stripBattery = null
         stripNetwork = null; stripNtfy = null
         stripStreamingDot = null; stripVpnDot = null; stripWifiBars = null
+        stripWeek = null; stripRain = null; stripSun = null
+        tickerAnim?.cancel(); tickerAnim = null
+        tickerView = null; tickerText = null
     }
 
     private fun stopEverything() {
         main.removeCallbacks(tick)
         ntfy?.stop(); ntfy = null
         weather?.stop(); weather = null; weatherCfgLoaded = ""
+        ticker?.stop(); ticker = null; tickerCfgLoaded = ""
         stopMediaSessions()
         hideCountdown(); mediaProjection?.stop(); mediaProjection = null
         removeAllOverlays()
@@ -367,6 +396,7 @@ class OverlayService : Service() {
         nowPlayingMiniArt = art
         nowPlayingMiniGlyph = glyph
         nowPlayingView = addDraggable(button, "nowPlaying", dp(28), dp(700)) { showNowPlayingFull() }
+        npAutoExpandPending = prefs.nowPlayingStartExpanded
         updateNowPlaying()
     }
 
@@ -564,6 +594,11 @@ class OverlayService : Service() {
         val state = controller?.playbackState
         val playing = state?.state == PlaybackState.STATE_PLAYING
         nowPlayingVisualizer?.playing = playing
+        // "Start expanded": open the full card once, the first time we see something playing.
+        if (playing && npAutoExpandPending && nowPlayingView != null && nowPlayingFullView == null) {
+            npAutoExpandPending = false
+            showNowPlayingFull()
+        }
 
         if (mediaAccessMissing) {
             nowPlayingMiniGlyph?.text = "!"
@@ -637,40 +672,178 @@ class OverlayService : Service() {
 
     private fun showNav() {
         val vertical = prefs.navVertical
+        val style = prefs.navStyle
         val bar = LinearLayout(this).apply {
             orientation = if (vertical) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
-            background = rounded(withAlpha(CARD_BASE, prefs.overlayOpacity), 28)
-            setPadding(dp(8), dp(8), dp(8), dp(8))
-            elevation = dp(10).toFloat()
+            gravity = Gravity.CENTER
         }
+        styleNavBar(bar, style)
         val lp = baseParams().apply {
             gravity = Gravity.TOP or Gravity.START
             x = prefs.getX("nav", dp(1556)); y = prefs.getY("nav", dp(972))
         }
-        fun add(glyph: String, action: () -> Boolean) {
-            val b = TextView(this).apply {
-                text = glyph; setTextColor(Color.WHITE); textSize = scaled(26f); gravity = Gravity.CENTER
-                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            }
-            val size = dp(56)
-            val mlp = LinearLayout.LayoutParams(size, size)
-            if (vertical) mlp.bottomMargin = dp(6) else mlp.rightMargin = dp(6)
-            bar.addView(b, mlp)
-            makeDraggable(b, bar, lp, "nav") {
-                if (!action()) showBanner("Navigation not active", "Enable the Overlays accessibility service (see the app's Navigation tab).")
+        var index = 0
+        fun add(glyph: String, label: String, needsAccessibility: Boolean = true,
+                action: () -> Boolean, onLongPress: (() -> Unit)? = null) {
+            val btn = buildNavButton(glyph, label, index++, style)
+            val gap = if (style == "squares" || style == "color") dp(10) else dp(6)
+            // Preserve the per-style size from buildNavButton; just add the inter-button margin.
+            val mlp = (btn.layoutParams as? LinearLayout.LayoutParams)
+                ?: LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            if (vertical) mlp.bottomMargin = gap else mlp.rightMargin = gap
+            bar.addView(btn, mlp)
+            makeDraggable(btn, bar, lp, "nav", pressFeedback = true, onLongPress = onLongPress) {
+                if (needsAccessibility) runNavAction(label, action) else action()
             }
         }
-        if (prefs.navBack) add("‹") { NavAccessibilityService.back() }
-        if (prefs.navHome) add("⌂") { NavAccessibilityService.home() }
-        if (prefs.navRecents) add("▢") { NavAccessibilityService.recents() }
-        if (prefs.navControlCenter) add("⌄") { NavAccessibilityService.controlCenter() }
-        if (prefs.navScreenshot) add("📸") { startScreenshot(); true }
-        if (prefs.navLock) add("🔒") { NavAccessibilityService.lock() }
+        if (prefs.navBack) add("‹", "Back", action = { NavAccessibilityService.back() })
+        if (prefs.navHome) add("⌂", "Home", action = { NavAccessibilityService.home() })
+        if (prefs.navRecents) add("▢", "Recents", action = { NavAccessibilityService.recents() })
+        if (prefs.navControlCenter) add("⌄", "Center", action = { NavAccessibilityService.controlCenter() })
+        if (prefs.navScreenshot) add("📸", "Shot", needsAccessibility = false, action = { startScreenshot(); true })
+        if (prefs.navLock) add("🔒", "Lock", action = { NavAccessibilityService.lock() })
         if (bar.childCount == 0) return
         clampParamsToScreen(bar, lp)
         if (!safeAddView(bar, lp)) return
         navView = bar
         draggables.add(bar to lp)
+    }
+
+    /** Apply the chosen [Prefs.NAV_STYLES] treatment to the cluster container. */
+    private fun styleNavBar(bar: LinearLayout, style: String) {
+        when (style) {
+            "ghost" -> { bar.background = rounded(withAlpha(CARD_BASE, 35), 28); bar.setPadding(dp(8), dp(8), dp(8), dp(8)) }
+            "squares", "color" -> bar.setPadding(0, 0, 0, 0) // each button floats on its own
+            "glass" -> { bar.background = rounded(0x66101216, 30); bar.setPadding(dp(10), dp(8), dp(10), dp(8)); bar.elevation = dp(10).toFloat() }
+            "dot" -> { bar.background = rounded(withAlpha(CARD_BASE, 60), 24); bar.setPadding(dp(8), dp(6), dp(8), dp(6)) }
+            else -> { bar.background = rounded(withAlpha(CARD_BASE, prefs.overlayOpacity), 28); bar.setPadding(dp(8), dp(8), dp(8), dp(8)); bar.elevation = dp(10).toFloat() }
+        }
+    }
+
+    /** Build one nav button view styled per [style]. Returns the view to add to the bar. */
+    private fun buildNavButton(glyph: String, label: String, index: Int, style: String): View {
+        fun glyphView(size: Float = 26f, color: Int = Color.WHITE) = TextView(this).apply {
+            text = glyph; setTextColor(color); textSize = scaled(size); gravity = Gravity.CENTER
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        }
+        val size = dp(56)
+        return when (style) {
+            "ghost" -> glyphView(color = 0xCCFFFFFF.toInt()).apply {
+                layoutParams = LinearLayout.LayoutParams(size, size)
+            }
+            "squares" -> glyphView().apply {
+                background = rounded(withAlpha(CARD_BASE, prefs.overlayOpacity), 16)
+                elevation = dp(8).toFloat()
+                layoutParams = LinearLayout.LayoutParams(size, size)
+            }
+            "underline" -> LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
+                addView(glyphView(), LinearLayout.LayoutParams(size, dp(48)))
+                addView(View(this@OverlayService).apply { setBackgroundColor(prefs.accentColor) },
+                    LinearLayout.LayoutParams(dp(26), dp(3)).also { it.topMargin = dp(2) })
+            }
+            "glass" -> glyphView().apply {
+                background = rounded(0x33FFFFFF, 16)
+                layoutParams = LinearLayout.LayoutParams(size, size)
+            }
+            "label" -> LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
+                setPadding(dp(8), dp(4), dp(8), dp(4))
+                addView(glyphView(22f), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).also { it.gravity = Gravity.CENTER_HORIZONTAL })
+                addView(TextView(this@OverlayService).apply {
+                    text = label; setTextColor(0xFFC2C8D2.toInt()); textSize = scaled(10f); gravity = Gravity.CENTER
+                })
+            }
+            "color" -> glyphView().apply {
+                background = rounded(NAV_COLORS[index % NAV_COLORS.size], 16)
+                elevation = dp(8).toFloat()
+                layoutParams = LinearLayout.LayoutParams(size, size)
+            }
+            "dot" -> LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
+                addView(glyphView(20f), LinearLayout.LayoutParams(dp(44), dp(36)))
+                addView(View(this@OverlayService).apply { background = circle(0x66FFFFFF) },
+                    LinearLayout.LayoutParams(dp(4), dp(4)).also { it.topMargin = dp(2) })
+            }
+            else -> glyphView().apply { layoutParams = LinearLayout.LayoutParams(size, size) } // pill
+        }
+    }
+
+    /**
+     * Run an accessibility-backed nav action. Distinguishes "service not enabled" (tell the user how to
+     * enable it) from "enabled but the action returned false" — which on Portal Mini means the system UI
+     * has no such feature (e.g. no Recents/Overview). In that case we fall back where we sensibly can.
+     */
+    private fun runNavAction(label: String, action: () -> Boolean) {
+        if (!NavAccessibilityService.isEnabled) {
+            showBanner("Navigation not active", "Enable the Overlays accessibility service (see the app's Navigation tab).")
+            return
+        }
+        if (action()) return
+        when (label) {
+            // Portal+ shows its native (Facebook) overview here; smaller Portals (e.g. Mini) have no
+            // overview screen, so recents() returns false — fall back to our own app switcher.
+            "Recents" -> showAppSwitcher()
+            else -> showBanner("$label unavailable", "This Portal's system UI didn't accept the action.")
+        }
+    }
+
+    /**
+     * Fallback for devices (e.g. Portal Mini) with no system Recents/Overview screen: a simple grid of
+     * launchable apps. Tapping one switches to it. Uses real installed apps only — no placeholders.
+     */
+    private fun showAppSwitcher() {
+        val pm = packageManager
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val apps = pm.queryIntentActivities(intent, 0)
+            .mapNotNull { ri ->
+                val pkg = ri.activityInfo?.packageName ?: return@mapNotNull null
+                if (pkg == packageName) return@mapNotNull null
+                val launch = pm.getLaunchIntentForPackage(pkg) ?: return@mapNotNull null
+                Triple(ri.loadLabel(pm).toString(), ri.loadIcon(pm), launch)
+            }
+            .distinctBy { it.third.component?.packageName ?: it.first }
+            .sortedBy { it.first.lowercase(Locale.getDefault()) }
+        if (apps.isEmpty()) { showBanner("No apps found", "Couldn't list launchable apps on this device."); return }
+
+        val root = FrameLayout(this).apply { setBackgroundColor(0xE60A0C10.toInt()); isClickable = true }
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(0xFF15181E.toInt(), 22); setPadding(dp(28), dp(24), dp(28), dp(24))
+        }
+        panel.addView(TextView(this).apply {
+            text = "Switch app"; setTextColor(Color.WHITE); textSize = scaled(22f)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL); setPadding(0, 0, 0, dp(16))
+        })
+        val grid = android.widget.GridLayout(this).apply { columnCount = 5 }
+        apps.take(20).forEach { (label, icon, launch) ->
+            val cell = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
+                setPadding(dp(12), dp(12), dp(12), dp(12))
+                background = rounded(0x00000000, 14)
+                setOnClickListener {
+                    safeRemove(root)
+                    runCatching { startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                }
+            }
+            cell.addView(ImageView(this).apply { setImageDrawable(icon) },
+                LinearLayout.LayoutParams(dp(56), dp(56)))
+            cell.addView(TextView(this).apply {
+                text = label; setTextColor(0xFFC2C8D2.toInt()); textSize = scaled(11f); gravity = Gravity.CENTER
+                maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; maxWidth = dp(80); setPadding(0, dp(6), 0, 0)
+            })
+            grid.addView(cell)
+        }
+        panel.addView(grid)
+        root.addView(panel, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).also { it.gravity = Gravity.CENTER })
+        root.setOnClickListener { safeRemove(root) }
+        val lp = baseParams(focusable = true).apply {
+            width = WindowManager.LayoutParams.MATCH_PARENT; height = WindowManager.LayoutParams.MATCH_PARENT
+            gravity = Gravity.CENTER
+        }
+        safeAddView(root, lp)
     }
 
     // ---- status strip ----------------------------------------------------
@@ -734,6 +907,9 @@ class OverlayService : Service() {
             bar.addView(bars)
             stripWifiBars = bars
         }
+        if (prefs.stripShowWeek) stripWeek = textSeg()
+        if (prefs.stripShowRain) stripRain = textSeg()
+        if (prefs.stripShowSun) stripSun = textSeg()
         if (prefs.stripShowNtfy) stripNtfy = textSeg()
 
         val lp = baseParams(height = dp(36)).apply {
@@ -744,6 +920,57 @@ class OverlayService : Service() {
         if (!safeAddView(bar, lp)) return
         stripView = bar
         updateLiveText()
+    }
+
+    // ---- ticker ----------------------------------------------------------
+
+    private fun showTicker() {
+        val container = FrameLayout(this).apply {
+            background = GradientDrawable().apply { setColor(withAlpha(STRIP_BASE, prefs.overlayOpacity)) }
+            clipChildren = true; clipToPadding = true
+        }
+        val t = TextView(this).apply {
+            text = "…"; setTextColor(0xFFD7DCE4.toInt()); textSize = scaled(14f)
+            maxLines = 1; gravity = Gravity.CENTER_VERTICAL; includeFontPadding = false
+        }
+        container.addView(t, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        tickerText = t
+        val top = prefs.tickerPosition == "top"
+        val lp = baseParams(height = dp(30)).apply {
+            width = WindowManager.LayoutParams.MATCH_PARENT
+            gravity = Gravity.START or if (top) Gravity.TOP else Gravity.BOTTOM
+            // Offset past the status strip when the ticker shares the same edge, and clear Portal's
+            // top system pills when pinned to the top.
+            y = when {
+                top -> if (prefs.stripEnabled && prefs.stripPosition == "top") dp(70 + 36) else dp(70)
+                prefs.stripEnabled && prefs.stripPosition != "top" -> dp(36)
+                else -> 0
+            }
+        }
+        if (!safeAddView(container, lp)) { tickerText = null; return }
+        tickerView = container
+        container.post { startTickerScroll() }
+    }
+
+    /** (Re)start the right-to-left marquee. Overlay windows can't reliably get focus, so we animate
+     *  translationX ourselves instead of relying on TextView's focus-gated marquee. */
+    private fun startTickerScroll() {
+        val t = tickerText ?: return
+        tickerAnim?.cancel()
+        val screenW = resources.displayMetrics.widthPixels
+        val unspec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        t.measure(unspec, unspec)
+        val textW = t.measuredWidth.coerceAtLeast(1)
+        val durationMs = ((screenW + textW).toFloat() / prefs.tickerSpeed * 1000f).toLong().coerceAtLeast(2000L)
+        t.translationX = screenW.toFloat()
+        tickerAnim = ObjectAnimator.ofFloat(t, "translationX", screenW.toFloat(), -textW.toFloat()).apply {
+            duration = durationMs
+            repeatCount = ObjectAnimator.INFINITE
+            repeatMode = ObjectAnimator.RESTART
+            interpolator = android.view.animation.LinearInterpolator()
+            start()
+        }
     }
 
     // ---- toast banner ----------------------------------------------------
@@ -839,10 +1066,19 @@ class OverlayService : Service() {
         }
         if (!safeAddView(root, lp)) return
         if (prefs.alertVibrate) vibrate()
+        if (prefs.alertSound) playAlertSound(kind)
         card.scaleX = 0.85f; card.scaleY = 0.85f; card.alpha = 0f
         card.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(220).start()
         btn.setOnClickListener { safeRemove(root) }
         root.setOnClickListener { safeRemove(root) }
+    }
+
+    /** Play the per-kind alert sound, or the device's default notification tone if none is set. */
+    private fun playAlertSound(kind: String) {
+        val uriStr = prefs.soundUri(kind)
+        val uri = if (uriStr.isNotBlank()) android.net.Uri.parse(uriStr)
+            else android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+        runCatching { android.media.RingtoneManager.getRingtone(applicationContext, uri)?.play() }
     }
 
     private fun vibrate() {
@@ -876,9 +1112,49 @@ class OverlayService : Service() {
         stripWeather?.text = lastWeather.ifBlank { "…" }
         stripBattery?.text = batteryString()
         stripNetwork?.text = networkSpeedString()
+        stripWeek?.text = weekString()
+        stripRain?.text = rainString()
+        stripSun?.text = sunString()
         stripNtfy?.text = if (prefs.topic.isBlank()) "no topic"
             else if (connected) "ntfy connected" else "ntfy reconnecting…"
         updateStripIndicators()
+    }
+
+    /** ISO-8601 week number, e.g. "W25". Local, no network. */
+    private fun weekString(): String {
+        val cal = java.util.Calendar.getInstance().apply {
+            firstDayOfWeek = java.util.Calendar.MONDAY; minimalDaysInFirstWeek = 4
+        }
+        return "W${cal.get(java.util.Calendar.WEEK_OF_YEAR)}"
+    }
+
+    /** "🌧 in 40min" / "🌧 now" / "no rain 1h" / "…" using the last weather fetch. */
+    private fun rainString(): String {
+        val e = weatherExtras
+        val now = System.currentTimeMillis()
+        val start = e.rainStartEpoch
+        return when {
+            start != null && start <= now + 60_000L -> "🌧 now"
+            start != null -> {
+                val mins = ((start - now) / 60_000L).toInt().coerceAtLeast(1)
+                "🌧 in ${mins}min"
+            }
+            e.rainHorizonEpoch > now -> "no rain 1h"
+            else -> "…"
+        }
+    }
+
+    /** "☀ 3h12m" to sunset or "🌅 5h" to sunrise, recomputed every tick from the stored epoch. */
+    private fun sunString(): String {
+        val e = weatherExtras
+        if (e.sunEventEpoch <= 0L) return "…"
+        val delta = e.sunEventEpoch - System.currentTimeMillis()
+        if (delta <= 0L) return "…"
+        val h = (delta / 3_600_000L).toInt()
+        val m = ((delta % 3_600_000L) / 60_000L).toInt()
+        val icon = if (e.sunIsSunset) "☀" else "🌅"
+        val span = if (h > 0) "${h}h${m}m" else "${m}m"
+        return "$icon $span"
     }
 
     /** Refresh the live status dots/bars (streaming, VPN, Wi-Fi). Called from the 1s tick. */
@@ -1138,41 +1414,66 @@ class OverlayService : Service() {
             x = prefs.getX(key, defX); y = prefs.getY(key, defY)
         }
         clampParamsToScreen(view, lp)
-        makeDraggable(view, view, lp, key, onTap)
+        makeDraggable(view, view, lp, key, onTap = onTap)
         if (!safeAddView(view, lp)) return view
         draggables.add(view to lp)
         return view
     }
 
-    /** Drag [moveView] by touching [touchTarget]; movement under the slop counts as a tap. */
+    /**
+     * Drag [moveView] by touching [touchTarget]; movement under the slop counts as a tap. When
+     * [pressFeedback] is set the target dims while held; [onLongPress] (if given) fires after the system
+     * long-press timeout and suppresses the tap.
+     */
     private fun makeDraggable(
-        touchTarget: View, moveView: View, lp: WindowManager.LayoutParams, posKey: String, onTap: (() -> Unit)?
+        touchTarget: View, moveView: View, lp: WindowManager.LayoutParams, posKey: String,
+        pressFeedback: Boolean = false, onLongPress: (() -> Unit)? = null, onTap: (() -> Unit)?
     ) {
-        var downX = 0f; var downY = 0f; var startX = 0; var startY = 0; var moved = false
+        var downX = 0f; var downY = 0f; var startX = 0; var startY = 0; var moved = false; var longFired = false
         val slop = dp(8)
+        val longPress = Runnable { longFired = true; touchTarget.alpha = 1f; onLongPress?.invoke() }
         touchTarget.setOnTouchListener { _, e ->
             when (e.action) {
-                MotionEvent.ACTION_DOWN -> { downX = e.rawX; downY = e.rawY; startX = lp.x; startY = lp.y; moved = false; true }
+                MotionEvent.ACTION_DOWN -> {
+                    downX = e.rawX; downY = e.rawY; startX = lp.x; startY = lp.y; moved = false; longFired = false
+                    if (pressFeedback) touchTarget.alpha = 0.55f
+                    if (onLongPress != null) main.postDelayed(longPress, android.view.ViewConfiguration.getLongPressTimeout().toLong())
+                    true
+                }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = (e.rawX - downX).roundToInt(); val dy = (e.rawY - downY).roundToInt()
-                    if (abs(dx) > slop || abs(dy) > slop) moved = true
+                    if (abs(dx) > slop || abs(dy) > slop) { moved = true; main.removeCallbacks(longPress) }
                     val (x, y) = clampToScreen(moveView, startX + dx, startY + dy)
                     lp.x = x; lp.y = y
                     wm.updateViewLayout(moveView, lp); true
                 }
-                MotionEvent.ACTION_UP -> { if (moved) prefs.setPos(posKey, lp.x, lp.y) else onTap?.invoke(); true }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    main.removeCallbacks(longPress)
+                    if (pressFeedback) touchTarget.alpha = 1f
+                    if (e.action == MotionEvent.ACTION_UP) {
+                        if (moved) prefs.setPos(posKey, lp.x, lp.y) else if (!longFired) onTap?.invoke()
+                    }
+                    true
+                }
                 else -> false
             }
         }
     }
 
     private fun baseParams(height: Int = WindowManager.LayoutParams.WRAP_CONTENT, focusable: Boolean = false): WindowManager.LayoutParams {
-        var f = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+        // NB: no FLAG_LAYOUT_NO_LIMITS. On Portal's old compositor that flag defeats damage-region
+        // clearing, so a moving overlay (dragged, or panned when a keyboard opens) leaves ghost trails.
+        // We clamp every overlay on-screen ourselves, so the flag isn't needed.
+        var f = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
         if (!focusable) f = f or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
         return WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT, height,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, f, PixelFormat.TRANSLUCENT
-        )
+        ).apply {
+            // Don't let a soft keyboard (in this or any app) pan/resize our overlays — that pan is what
+            // smears the nav cluster across the screen and steals touches while typing.
+            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+        }
     }
 
     /**
@@ -1294,6 +1595,11 @@ class OverlayService : Service() {
         private val VPN_OFF = 0xFFE5484D.toInt()
         private val WIFI_ON = 0xFFD7DCE4.toInt()
         private const val WIFI_DIM = 0x33FFFFFF
+        // Per-button tints for the "colour-coded" nav style (back, home, recents, …).
+        private val NAV_COLORS = intArrayOf(
+            0xFF4C8DFF.toInt(), 0xFF34C759.toInt(), 0xFFFF9F0A.toInt(),
+            0xFFBF5AF2.toInt(), 0xFF64D2FF.toInt(), 0xFFFF375F.toInt(), 0xFF8E8E93.toInt()
+        )
 
         fun send(context: Context, action: String, kind: String? = null) {
             val i = Intent(context, OverlayService::class.java).setAction(action)

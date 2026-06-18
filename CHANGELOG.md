@@ -5,6 +5,34 @@ All notable changes to Portal Overlays are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4] - 2026-06-18
+
+### Added
+- **8 navigation button styles** — Pill segments (default), Underline indicator, Ghost pill, Floating
+  squares, Dark glass, Icon + label, Colour-coded, and Dot indicator. Pick one in the Navigation
+  tab; applies live. Buttons now dim while pressed.
+- **App switcher fallback** — on Portals with no system Overview screen (e.g. Portal Mini), the Recents
+  button opens a grid of installed apps to switch to, instead of doing nothing. (On Portal+ the
+  Recents button opens Portal's native overview.)
+- **Ticker overlay** — a thin scrolling strip along the bottom or top. Real data only: point it at an
+  RSS/Atom or JSON feed URL. Adjustable scroll speed.
+- **Status-strip additions** — ISO week number, rain in the next hour ("🌧 in 40min", from Open-Meteo
+  15-minute precipitation), and time until the next sunset/sunrise ("☀ 3h12m").
+- **Custom alert sounds** — choose a per-kind notification tone (doorbell / timer / reminder) from the
+  system ringtone picker.
+- **Now Playing default** — choose whether it starts as a small bubble or opens the full card when
+  playback begins.
+
+### Fixed
+- **Weather location keyboard** — the soft keyboard now reliably appears when tapping a text field
+  (e.g. the Weather city) on Portal's older Android (`adjustResize` + explicit IME show on focus).
+- **Overlay ghost trails** — moving an overlay (dragging a widget, or the keyboard panning the HUD)
+  no longer smears ghost copies across the screen that stole touches. Overlays no longer pan for the
+  IME, and the off-screen-layout flag that defeated damage clearing was removed.
+- **Recents on Portal Mini** — the cluster no longer shows a misleading "enable accessibility" message
+  when the service is already on; it distinguishes an unsupported system action and falls back to the
+  app switcher.
+
 ## [1.3] - 2026-06-18
 
 ### Added

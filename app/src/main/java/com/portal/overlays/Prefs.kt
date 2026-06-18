@@ -69,6 +69,9 @@ class Prefs(context: Context) {
     /** Float the currently playing track (art + title + transport) using notification access. */
     var nowPlayingEnabled: Boolean
         get() = bool("nowPlayingEnabled", false); set(v) = setBool("nowPlayingEnabled", v)
+    /** When media is playing, open the full card automatically instead of starting as a small bubble. */
+    var nowPlayingStartExpanded: Boolean
+        get() = bool("nowPlayingStartExpanded", false); set(v) = setBool("nowPlayingStartExpanded", v)
 
     // ---- sticky note widget ----------------------------------------------
     var noteEnabled: Boolean
@@ -103,6 +106,15 @@ class Prefs(context: Context) {
     /** Wi-Fi signal bars; tap to show the device IP. */
     var stripShowWifi: Boolean
         get() = bool("stripShowWifi", false); set(v) = setBool("stripShowWifi", v)
+    /** ISO week number (e.g. "W25"). Local-only, no network. */
+    var stripShowWeek: Boolean
+        get() = bool("stripShowWeek", false); set(v) = setBool("stripShowWeek", v)
+    /** Rain in the next hour from Open-Meteo (e.g. "🌧 in 40min" / "no rain 1h"). */
+    var stripShowRain: Boolean
+        get() = bool("stripShowRain", false); set(v) = setBool("stripShowRain", v)
+    /** Time until the next sunset or sunrise from Open-Meteo (e.g. "☀ 3h12m"). */
+    var stripShowSun: Boolean
+        get() = bool("stripShowSun", false); set(v) = setBool("stripShowSun", v)
 
     // ---- banners ----------------------------------------------------------
     var bannerSeconds: Int
@@ -113,6 +125,26 @@ class Prefs(context: Context) {
     // ---- alerts -----------------------------------------------------------
     var alertVibrate: Boolean
         get() = bool("alertVibrate", true); set(v) = setBool("alertVibrate", v)
+    /** Play a sound when an alert fires. */
+    var alertSound: Boolean
+        get() = bool("alertSound", false); set(v) = setBool("alertSound", v)
+    /** Per-kind sound URIs (empty = the device's default notification tone). */
+    fun soundUri(kind: String): String = str("sound_$kind", "")
+    fun setSoundUri(kind: String, uri: String) = setStr("sound_$kind", uri)
+
+    // ---- ticker -----------------------------------------------------------
+    /** Thin scrolling text strip along the bottom edge. */
+    var tickerEnabled: Boolean
+        get() = bool("tickerEnabled", false); set(v) = setBool("tickerEnabled", v)
+    /** Source feed URL — an RSS/Atom XML feed or a JSON array/object. Empty = nothing to show. */
+    var tickerUrl: String
+        get() = str("tickerUrl", ""); set(v) = setStr("tickerUrl", v.trim())
+    /** "bottom" or "top" edge of the screen. */
+    var tickerPosition: String
+        get() = str("tickerPosition", "bottom"); set(v) = setStr("tickerPosition", v)
+    /** Scroll speed in pixels/second. */
+    var tickerSpeed: Int
+        get() = int("tickerSpeed", 60); set(v) = setInt("tickerSpeed", v.coerceIn(20, 200))
 
     // ---- system-notification mirror --------------------------------------
     /** Mirror other apps' notifications (WhatsApp, Messenger, …) as floating banners. */
@@ -141,6 +173,9 @@ class Prefs(context: Context) {
         get() = bool("navLock", false); set(v) = setBool("navLock", v)
     var navVertical: Boolean
         get() = bool("navVertical", false); set(v) = setBool("navVertical", v)
+    /** Visual style of the nav cluster — see [NAV_STYLES]. */
+    var navStyle: String
+        get() = str("navStyle", "pill"); set(v) = setStr("navStyle", v)
     /** Countdown seconds before a screenshot is taken (0 = instant). */
     var screenshotDelay: Int
         get() = int("screenshotDelay", 3); set(v) = setInt("screenshotDelay", v.coerceIn(0, 10))
@@ -157,6 +192,18 @@ class Prefs(context: Context) {
     }
 
     companion object {
+        /** Nav cluster styles: id → human label. Order drives the settings selector. */
+        val NAV_STYLES = listOf(
+            "pill" to "Pill segments",
+            "underline" to "Underline indicator",
+            "ghost" to "Ghost pill",
+            "squares" to "Floating squares",
+            "glass" to "Dark glass",
+            "label" to "Icon + label",
+            "color" to "Colour-coded",
+            "dot" to "Dot indicator",
+        )
+
         const val DEFAULT_ACCENT = 0xFFFF375F.toInt()
         val ACCENT_PRESETS = listOf(
             0xFF4C8DFF.toInt(), // blue

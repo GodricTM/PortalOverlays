@@ -1,36 +1,41 @@
-# Portal Overlays v1.0
+# Portal Overlays v1.4
 
-First public release. A floating HUD for sideloaded Meta Portal devices — widgets, push banners, mirrored notifications, status strip, floating nav, fullscreen Now Playing. No Google Play Services required.
+Nav styles, ticker, weather extras, custom alert sounds, and Portal-specific fixes for Recents,
+keyboard input, and overlay ghost trails.
 
 ## What's in this release
 
-- **On-top widgets**: clock, weather (Open-Meteo), battery, sticky note, Now Playing mini
-- **Push banners** from ntfy.sh
-- **Notification mirroring** (Android `NotificationListenerService`)
-- **Floating nav cluster** via `AccessibilityService` (Back / Home / Recents / Control Center swipe / Screenshot)
-- **Status strip** with time, date, weather, battery, ntfy state, live network up/down
-- **Fullscreen Now Playing** with artwork, transport controls, animated visualizer
-- **Customisation**: accent colour, opacity, corner radius, text scale, strip position, saved widget positions
-
-## Screenshots
-
-| | | |
-|---|---|---|
-| ![](screenshots/01_widgets.png) | ![](screenshots/02_notifications.png) | ![](screenshots/03_navigation.png) |
-| Widgets | Notifications | Navigation |
-| ![](screenshots/04_appearance.png) | ![](screenshots/05_about.png) | ![](screenshots/06_immortal_home_with_overlays.png) |
-| Appearance | About | On the Immortal launcher |
+- **Eight nav styles**: Pill segments (default), Underline indicator, Ghost pill, Floating squares,
+  Dark glass, Icon + label, Colour-coded, and Dot indicator.
+- **Recents fallback**: on Portal models with no native Overview screen, Recents opens an installed-app
+  switcher grid instead of doing nothing.
+- **Ticker overlay**: paste an RSS, Atom, or JSON feed URL and show a thin scrolling strip on the top
+  or bottom edge. No placeholder data is shown.
+- **Status-strip extras**: ISO week number, rain in the next hour, and time until the next sunset or
+  sunrise using Open-Meteo.
+- **Custom alert sounds**: choose notification tones for doorbell, timer, and reminder alerts.
+- **Now Playing start mode**: start playback overlays as a compact bubble or open the full card.
+- **Keyboard fix**: Portal text fields now explicitly raise the soft keyboard on focus.
+- **Overlay ghost-trail fix**: moving overlays and keyboard activity no longer smear stale overlay
+  frames that steal touches.
 
 ## Install
 
 ```bash
-npx -y metavr app install -r PortalOverlays-v1.0-release.apk
+npx -y metavr app install -r PortalOverlays-v1.4-release.apk
 npx -y metavr app launch com.portal.overlays
 ```
 
+After an app update, Android may disable the accessibility service. If the floating nav buttons stop
+working, re-run `enable_portal_permissions.bat` from the source repo.
+
 ## Permissions
 
-Grant once over ADB (easiest: run `enable_portal_permissions.bat` from the source repo, or see the README).
+Grant once over ADB, or re-run after reinstalling/updating:
+
+```powershell
+.\enable_portal_permissions.bat
+```
 
 ## License
 

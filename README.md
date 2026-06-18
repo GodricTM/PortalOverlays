@@ -9,10 +9,16 @@ A floating HUD for sideloaded Meta Portal devices. Draws widgets, banners, mirro
 - **Push banners** from ntfy.sh (no Firebase / no FCM)
 - **Mirrored notifications** from other apps as overlay banners
 - **Draggable widgets**: clock, weather, battery, sticky note, Now Playing mini
-- **Status strip** with time, date, weather, battery, ntfy state, live network speed
-- **Floating nav cluster**: Back, Home, Recents, Control Center swipe, Screenshot
-- **Fullscreen Now Playing** with artwork, transport controls, animated visualizer
-- **Customisation**: accent colour, opacity, corner radius, text scale, strip position
+- **Ticker overlay** from a real RSS, Atom, or JSON feed, shown along the top or bottom edge
+- **Status strip** with time, date, weather, battery, ntfy state, live network speed, ISO week,
+  rain-in-next-hour, sunrise/sunset countdown, streaming, VPN, and Wi-Fi indicators
+- **Floating nav cluster**: Back, Home, Recents, Control Center swipe, Screenshot, Lock
+- **Portal Mini app switcher fallback** when the Portal system has no Recents/Overview UI
+- **Eight nav styles**: Pill segments, Underline indicator, Ghost pill, Floating squares, Dark glass,
+  Icon + label, Colour-coded, and Dot indicator
+- **Fullscreen Now Playing** with artwork, transport controls, animated visualizer, and a compact/expanded
+  start preference
+- **Customisation**: accent colour, opacity, corner radius, text scale, strip position, alert sounds
 
 ## Screenshots
 

@@ -6,6 +6,33 @@ Working tracker for releases and feature work. Newest at top.
 - **v1.1** — shipped ✅ (Portal TV banner, crash fix, permission onboarding)
 - **v1.2** — shipped ✅ (in-app updater: silent daemon + one-tap fallback)
 - **v1.3** — shipped ✅ (status-strip cluster + lock button)
+- **v1.4** — shipped ✅ (nav styles, ticker, app-switcher fallback, weather extras, custom sounds,
+  keyboard/ghost-trail fixes)
+
+---
+
+## v1.4 — nav styles + behaviours  (released 2026-06-18)
+
+versionCode 5 / versionName 1.4. Signed APK: `PortalOverlays-v1.4-release.apk`.
+
+Built:
+- [x] 8 nav button styles + press-state dimming (Prefs.navStyle; live picker in Nav tab)
+- [x] Recents app-switcher fallback for devices with no Overview (Portal Mini)
+- [x] Ticker overlay — RSS/Atom or JSON feed URL, self-animated marquee (TickerClient)
+- [x] Week number, rain-in-next-hour, sunset/sunrise countdown (Open-Meteo minutely_15 + daily)
+- [x] Custom per-kind alert sounds via system ringtone picker; now-playing start compact/expanded
+- [x] Keyboard fix — windowSoftInputMode + explicit IME show on field focus
+
+Release checks:
+- [x] `version.json` bumped to code 5 / 1.4
+- [x] `gh release create v1.4` with asset `PortalOverlays-v1.4-release.apk`
+- [x] Raw `version.json` + apkUrl resolve (HTTP 200)
+- [ ] **On-device test on Portal Mini** — Recents → app switcher works; each of the 8 nav styles
+      renders + presses; ticker scrolls real feed; rain/sun/week show; ringtone picker opens;
+      weather-city keyboard appears
+
+### Open question carried from before
+- Default nav style chosen = **Pill segments** ("safest all-rounder"); change in-app if preferred.
 
 ---
 
@@ -31,30 +58,21 @@ Release:
 
 ---
 
-## v1.4 — nav styles + behaviours  (planned)
+## v1.5 — ideas  (planned)
 
-- [ ] **8 nav button styles** (tap to feel press states):
-      Ghost pill · Pill segments · Floating squares · Underline indicator ·
-      Dark glass · Icon + label · Colour-coded · Dot indicator
-- [ ] **Compact vs expanded** Now-Playing default (start as bubble vs full card)
-- [ ] **Custom sounds per source** — doorbell→doorbell sound, server alert→klaxon
-      (bundle in `res/raw`; map per alert kind / ntfy source)
-- [ ] **Ticker overlay** — thin scrolling text strip along the bottom; real data only
-      (user-supplied RSS/JSON URL or ntfy topic — no placeholder headlines)
-- [ ] **Long-press Recents → split screen** — EXPERIMENTAL; Portal multi-window support unverified
-      (accessibility `GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN`)
-
-### Open decisions for v1.4
-- Ticker: default source/format — RSS vs JSON vs ntfy topic
-- Custom sounds: which bundled sounds; allow picking a device sound?
-- Nav styles: which style is the default
+- [ ] **Ticker via ntfy topic** as an alternative source (currently RSS/Atom or JSON URL only)
+- [ ] **Custom sounds per ntfy source/kind** (beyond the doorbell/timer/reminder alert kinds)
+- [ ] **Per-app split-screen pairing** if Portal multi-window proves workable on any model
 
 ---
 
 ## Decisions already made
+- Ticker source = user RSS/Atom or JSON URL; nothing shows until set (no-fake-data). ntfy-topic
+  source deferred to v1.5.
+- Custom sounds = system ringtone picker per alert kind (no bundled `res/raw` assets to license).
+- Default nav style = Pill segments.
+- Recents on no-Overview Portals (Mini) = fall back to an installed-apps switcher grid.
 - VPN dot = generic "VPN active" (Android won't reveal which app owns the tunnel without root)
-- Ticker data = user RSS/JSON or ntfy topic (honors no-fake-data)
-- Sequencing = v1.3 (status + lock) → v1.4 (nav styles + behaviours)
 
 ## Infra / gotchas
 - Releases cut from `main`; raw `main/version.json` drives the in-app updater — the release

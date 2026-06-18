@@ -1,11 +1,14 @@
 package com.portal.overlays
 
 import android.content.Intent
+import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -30,6 +33,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -53,8 +58,12 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -537,6 +546,13 @@ private fun WidgetsTab(prefs: Prefs, accent: Color, refresh: () -> Unit) {
             "metavr adb shell cmd notification allow_listener com.portal.overlays/com.portal.overlays.NotifyListenerService"
         )
         Toggle("Show now playing", on, accent) { on = it; prefs.nowPlayingEnabled = it; refresh() }
+        if (on) {
+            var expanded by remember { mutableStateOf(prefs.nowPlayingStartExpanded) }
+            Toggle("Open full card when playing", expanded, accent) {
+                expanded = it; prefs.nowPlayingStartExpanded = it; refresh()
+            }
+            Text("Off = starts as a small bubble you tap to expand.", color = MUTED, fontSize = 13.sp)
+        }
     }
     Section("📝  Sticky note", "A pinned note that floats on top.") {
         var on by remember { mutableStateOf(prefs.noteEnabled) }
@@ -577,13 +593,39 @@ private fun NotifyTab(context: android.content.Context, prefs: Prefs, accent: Co
     }
     Section("🚨  Alert popups", "Full-attention overlays with a Dismiss button.") {
         var vib by remember { mutableStateOf(prefs.alertVibrate) }
+        var snd by remember { mutableStateOf(prefs.alertSound) }
         Toggle("Vibrate on alert", vib, accent) { vib = it; prefs.alertVibrate = it }
+        Toggle("Play a sound on alert", snd, accent) { snd = it; prefs.alertSound = it }
+        if (snd) {
+            SoundRow(context, prefs, accent, "🔔 Doorbell sound", OverlayService.KIND_DOORBELL)
+            SoundRow(context, prefs, accent, "⏰ Timer sound", OverlayService.KIND_TIMER)
+            SoundRow(context, prefs, accent, "📌 Reminder sound", OverlayService.KIND_REMINDER)
+        }
+        Spacer(Modifier.height(6.dp))
         Row {
             Ghost("🔔 Doorbell", Modifier.weight(1f)) { OverlayService.send(context, OverlayService.ACTION_ALERT, OverlayService.KIND_DOORBELL) }
             Spacer(Modifier.width(10.dp))
             Ghost("⏰ Timer", Modifier.weight(1f)) { OverlayService.send(context, OverlayService.ACTION_ALERT, OverlayService.KIND_TIMER) }
             Spacer(Modifier.width(10.dp))
             Ghost("📌 Reminder", Modifier.weight(1f)) { OverlayService.send(context, OverlayService.ACTION_ALERT, OverlayService.KIND_REMINDER) }
+        }
+    }
+    Section("📰  Ticker", "A thin scrolling strip along the bottom. Real data only — paste an RSS/Atom or JSON feed URL.") {
+        var on by remember { mutableStateOf(prefs.tickerEnabled) }
+        var url by remember { mutableStateOf(prefs.tickerUrl) }
+        var speed by remember { mutableStateOf(prefs.tickerSpeed.toFloat()) }
+        var top by remember { mutableStateOf(prefs.tickerPosition == "top") }
+        Toggle("Show ticker", on, accent) { on = it; prefs.tickerEnabled = it; refresh() }
+        if (on) {
+            Segmented(listOf("Bottom", "Top"), if (top) 1 else 0, accent) {
+                top = it == 1; prefs.tickerPosition = if (top) "top" else "bottom"; refresh()
+            }
+            Field("Feed URL (RSS/Atom or JSON)", url, "https://… .xml or .json") { url = it; prefs.tickerUrl = it; refresh() }
+            SliderRow("Scroll speed", "${speed.toInt()} px/s", speed, 20f..200f, accent) {
+                speed = it; prefs.tickerSpeed = it.toInt(); refresh()
+            }
+            if (url.isBlank()) Text("Nothing scrolls until you add a feed — no placeholder headlines.",
+                color = MUTED, fontSize = 13.sp)
         }
     }
     Section("📊  Status strip", "A thin live-info bar along one edge.") {
@@ -602,6 +644,9 @@ private fun NotifyTab(context: android.content.Context, prefs: Prefs, accent: Co
             var stream by remember { mutableStateOf(prefs.stripShowStreaming) }
             var vpn by remember { mutableStateOf(prefs.stripShowVpn) }
             var wifi by remember { mutableStateOf(prefs.stripShowWifi) }
+            var week by remember { mutableStateOf(prefs.stripShowWeek) }
+            var rain by remember { mutableStateOf(prefs.stripShowRain) }
+            var sun by remember { mutableStateOf(prefs.stripShowSun) }
             var n by remember { mutableStateOf(prefs.stripShowNtfy) }
             Toggle("Clock", c, accent) { c = it; prefs.stripShowClock = it; refresh() }
             Toggle("Date", d, accent) { d = it; prefs.stripShowDate = it; refresh() }
@@ -611,6 +656,12 @@ private fun NotifyTab(context: android.content.Context, prefs: Prefs, accent: Co
             Toggle("Streaming indicator", stream, accent) { stream = it; prefs.stripShowStreaming = it; refresh() }
             Toggle("VPN status dot", vpn, accent) { vpn = it; prefs.stripShowVpn = it; refresh() }
             Toggle("Wi-Fi signal (tap for IP)", wifi, accent) { wifi = it; prefs.stripShowWifi = it; refresh() }
+            Toggle("Week number", week, accent) { week = it; prefs.stripShowWeek = it; refresh() }
+            Toggle("Rain in the next hour", rain, accent) { rain = it; prefs.stripShowRain = it; refresh() }
+            Toggle("Time to sunset / sunrise", sun, accent) { sun = it; prefs.stripShowSun = it; refresh() }
+            if ((rain || sun) && prefs.weatherCity.isBlank())
+                Text("Set a Weather city in the Widgets tab — rain and sun times need a location.",
+                    color = MUTED, fontSize = 13.sp)
             Toggle("ntfy status", n, accent) { n = it; prefs.stripShowNtfy = it; refresh() }
         }
     }
@@ -637,6 +688,10 @@ private fun NavTab(context: android.content.Context, prefs: Prefs, accent: Color
             Toggle("Back  ‹", back, accent) { back = it; prefs.navBack = it; refresh() }
             Toggle("Home  ⌂", home, accent) { home = it; prefs.navHome = it; refresh() }
             Toggle("Recents  ▢", rec, accent) { rec = it; prefs.navRecents = it; refresh() }
+            if (rec) Text(
+                "Recents opens Portal's own overview (the Facebook recents UI). On smaller Portals with " +
+                "no overview screen (e.g. Portal Mini) it opens a quick app switcher instead.",
+                color = MUTED, fontSize = 13.sp)
             Toggle("Control Center  ⌄", cc, accent) { cc = it; prefs.navControlCenter = it; refresh() }
             Toggle("Screenshot  📸", shot, accent) { shot = it; prefs.navScreenshot = it; refresh() }
             Toggle("Lock screen  🔒", lock, accent) { lock = it; prefs.navLock = it; refresh() }
@@ -644,6 +699,10 @@ private fun NavTab(context: android.content.Context, prefs: Prefs, accent: Color
                 vert = it == 1; prefs.navVertical = it == 1; refresh()
             }
         }
+    }
+    Section("🎛️  Button style", "Eight looks for the cluster. Tap one to apply it live.") {
+        var style by remember { mutableStateOf(prefs.navStyle) }
+        NavStylePicker(style, accent) { style = it; prefs.navStyle = it; refresh() }
     }
     Section("📸  Screenshot", "Tap the 📸 button to capture the screen after a countdown.") {
         var delay by remember { mutableStateOf(prefs.screenshotDelay.toFloat()) }
@@ -754,19 +813,73 @@ private fun Toggle(label: String, checked: Boolean, accent: Color, onChange: (Bo
     }
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun Field(label: String, value: String, placeholder: String, onChange: (String) -> Unit) {
+    // On Portal's older Android the soft keyboard often won't auto-raise inside a scrolled form, so we
+    // request it explicitly when the field gains focus — via Compose's controller AND the platform
+    // InputMethodManager (posted, so the input connection is established first), which is what actually
+    // sticks on Portal.
+    val keyboard = LocalSoftwareKeyboardController.current
+    val view = androidx.compose.ui.platform.LocalView.current
     OutlinedTextField(
         value = value, onValueChange = onChange, singleLine = true,
         label = { Text(label, color = MUTED) },
         placeholder = { Text(placeholder, color = FAINT) },
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { keyboard?.hide() }),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+            .onFocusChanged { state ->
+                if (state.isFocused) {
+                    keyboard?.show()
+                    view.post {
+                        val imm = view.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                            as? android.view.inputmethod.InputMethodManager
+                        imm?.showSoftInput(view, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                    }
+                }
+            },
         colors = TextFieldDefaults.colors(
             focusedContainerColor = PANEL2, unfocusedContainerColor = PANEL2,
             focusedTextColor = TEXT, unfocusedTextColor = TEXT,
             focusedIndicatorColor = LINE, unfocusedIndicatorColor = LINE, cursorColor = TEXT
         )
     )
+}
+
+@Composable
+private fun SoundRow(
+    context: android.content.Context, prefs: Prefs, accent: Color, label: String, kind: String
+) {
+    var uriStr by remember { mutableStateOf(prefs.soundUri(kind)) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val picked: Uri? = result.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+            uriStr = picked?.toString() ?: ""
+            prefs.setSoundUri(kind, uriStr)
+        }
+    }
+    val title = remember(uriStr) {
+        if (uriStr.isBlank()) "Default notification tone"
+        else runCatching { RingtoneManager.getRingtone(context, Uri.parse(uriStr))?.getTitle(context) }.getOrNull() ?: "Custom"
+    }
+    Row(Modifier.fillMaxWidth().height(54.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(label, color = TEXT, fontSize = 15.sp)
+            Text(title, color = MUTED, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+        }
+        Ghost("Choose") {
+            val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_NOTIFICATION)
+                putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, label)
+                putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                if (uriStr.isNotBlank()) putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(uriStr))
+            }
+            runCatching { launcher.launch(intent) }
+                .onFailure { OverlayService.sendBanner(context, "No sound picker", "This Portal has no ringtone picker; the default tone is used.") }
+        }
+    }
 }
 
 @Composable
@@ -805,6 +918,40 @@ private fun Segmented(options: List<String>, selected: Int, accent: Color, onSel
                     .background(if (active) accent else Color.Transparent).clickable { onSelect(i) },
                 contentAlignment = Alignment.Center
             ) { Text(opt, color = if (active) Color.White else MUTED, fontSize = 15.sp, fontWeight = FontWeight.Medium) }
+        }
+    }
+}
+
+@Composable
+private fun NavStylePicker(selected: String, accent: Color, onSelect: (String) -> Unit) {
+    val hints = mapOf(
+        "pill" to "Native-feeling all-rounder",
+        "ghost" to "Invisible, for ambient/clock mode",
+        "squares" to "Coarse touch from a distance",
+        "underline" to "When buttons double as screen switchers",
+        "glass" to "Best over other content",
+        "label" to "Shared use — names under each icon",
+        "color" to "Fastest muscle memory",
+        "dot" to "Most minimal, full-screen ambient",
+    )
+    Column {
+        Prefs.NAV_STYLES.forEach { (id, label) ->
+            val active = id == selected
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (active) accent.copy(alpha = 0.16f) else PANEL2)
+                    .border(if (active) 2.dp else 0.dp, if (active) accent else Color.Transparent, RoundedCornerShape(12.dp))
+                    .clickable { onSelect(id) }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(label, color = TEXT, fontSize = 16.sp, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
+                    Text(hints[id] ?: "", color = MUTED, fontSize = 12.sp)
+                }
+                if (active) Text("✓", color = accent, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
