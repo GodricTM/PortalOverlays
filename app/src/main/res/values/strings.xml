@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Overlays</string>
+    <string name="acc_desc">Lets the floating Back button send a system-wide Back action across apps.</string>
+</resources>
