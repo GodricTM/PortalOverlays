@@ -1,0 +1,25 @@
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+/build/
+/captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+release-signing.properties
+release-keystore.jks
+
+# build outputs
+app/build/
+
+# device screenshots used during development
+*_screen.png
+deck*.png
+nav_*.png
+after_*.png
+control_panel.png
+test_banner.png
+over_launcher.png
