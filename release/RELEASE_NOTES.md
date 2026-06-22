@@ -1,28 +1,26 @@
-# Portal Overlays v1.4
+# Portal Overlays v1.5
 
-Nav styles, ticker, weather extras, custom alert sounds, and Portal-specific fixes for Recents,
-keyboard input, and overlay ghost trails.
+A big Now Playing upgrade, a hide/restore status strip, overlays that come back on their own, and a
+fixed screenshot button — plus the dedicated Status strip / Ticker / Settings / Now Playing pages.
 
 ## What's in this release
 
-- **Eight nav styles**: Pill segments (default), Underline indicator, Ghost pill, Floating squares,
-  Dark glass, Icon + label, Colour-coded, and Dot indicator.
-- **Recents fallback**: on Portal models with no native Overview screen, Recents opens an installed-app
-  switcher grid instead of doing nothing.
-- **Ticker overlay**: paste an RSS, Atom, or JSON feed URL and show a thin scrolling strip on the top
-  or bottom edge. No placeholder data is shown.
-- **Status-strip extras**: ISO week number, rain in the next hour, and time until the next sunset or
-  sunrise using Open-Meteo.
-- **Custom alert sounds**: choose notification tones for doorbell, timer, and reminder alerts.
-- **Now Playing start mode**: start playback overlays as a compact bubble or open the full card.
-- **Keyboard fix**: Portal text fields now explicitly raise the soft keyboard on focus.
-- **Overlay ghost-trail fix**: moving overlays and keyboard activity no longer smear stale overlay
-  frames that steal touches.
+- **Fullscreen Now Playing**: live progress bar with elapsed time and track length, the album name,
+  the source-app logo (e.g. Spotify), and a screen-off button next to the close control. The
+  progress/length can be toggled on the Now Playing page.
+- **Status strip hide / restore**: a small chevron collapses the strip — and the ticker that rides
+  with it — to a tiny handle so you can read what's underneath, then tap the handle to bring it back.
+- **Overlays auto re-arm**: reopening the app restores the overlays automatically. No more toggling
+  "running" off and on after the Portal kills the background service.
+- **Screenshot fix**: the floating Screenshot button no longer crashes the app, and screenshots now
+  save to the gallery (Pictures/Screenshots) instead of failing with "Couldn't write the file".
+- **Dedicated pages**: Status strip, Ticker, Settings, and Now Playing each have their own page in
+  the control deck, with live ticker source presets and a foreground-app indicator on the strip.
 
 ## Install
 
 ```bash
-npx -y metavr app install -r PortalOverlays-v1.4-release.apk
+npx -y metavr app install -r PortalOverlays-v1.5-release.apk
 npx -y metavr app launch com.portal.overlays
 ```
 
@@ -31,7 +29,8 @@ working, re-run `enable_portal_permissions.bat` from the source repo.
 
 ## Permissions
 
-Grant once over ADB, or re-run after reinstalling/updating:
+Grant once over ADB, or re-run after reinstalling/updating (now also grants storage so screenshots
+reach the gallery on pre-Android 10 Portals):
 
 ```powershell
 .\enable_portal_permissions.bat

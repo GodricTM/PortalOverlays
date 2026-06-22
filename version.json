@@ -1,6 +1,6 @@
 {
-  "versionCode": 5,
-  "versionName": "1.4",
-  "apkUrl": "https://github.com/GodricTM/PortalOverlays/releases/download/v1.4/PortalOverlays-v1.4-release.apk",
-  "notes": "v1.4 - Nav styles, ticker, Portal Mini app-switcher fallback, weather extras, custom alert sounds, Now Playing start mode, and keyboard/overlay ghost-trail fixes. See CHANGELOG.md for details."
+  "versionCode": 6,
+  "versionName": "1.5",
+  "apkUrl": "https://github.com/GodricTM/PortalOverlays/releases/download/v1.5/PortalOverlays-v1.5-release.apk",
+  "notes": "v1.5 - Fullscreen Now Playing with progress/track length, album and source-app logo, plus a screen-off button; status strip hide/restore (takes the ticker with it); overlays auto re-arm when you reopen the app; dedicated Status strip / Ticker / Settings / Now Playing pages; and a fixed screenshot button that saves to the gallery instead of crashing. See CHANGELOG.md for details."
 }

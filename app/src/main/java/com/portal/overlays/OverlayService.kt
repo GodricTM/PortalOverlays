@@ -12,6 +12,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
@@ -32,6 +33,7 @@ import android.net.TrafficStats
 import android.net.wifi.WifiManager
 import android.os.BatteryManager
 import android.text.format.Formatter
+import android.text.TextUtils
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
@@ -56,6 +58,12 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import java.io.ByteArrayOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Foreground service that owns the system-overlay surface. It draws every overlay on top of any app
@@ -93,11 +101,26 @@ class OverlayService : Service() {
     private var nowPlayingFullSubtitle: TextView? = null
     private var nowPlayingFullApp: TextView? = null
     private var nowPlayingFullPlay: TextView? = null
+    private var nowPlayingFullAppIcon: ImageView? = null
+    private var nowPlayingFullAlbum: TextView? = null
+    private var nowPlayingFullProgress: android.widget.ProgressBar? = null
+    private var nowPlayingFullElapsed: TextView? = null
+    private var nowPlayingFullDuration: TextView? = null
+    // Ticks once a second while the full card is open to advance the progress bar/time.
+    private val nowPlayingProgressTick = object : Runnable {
+        override fun run() { updateNowPlayingProgress(); main.postDelayed(this, 1000) }
+    }
     private var nowPlayingVisualizer: NowPlayingVisualizerView? = null
     private var noteView: View? = null
     private var noteText: TextView? = null
     private var stripView: View? = null
+    private var stripLp: WindowManager.LayoutParams? = null
+    // When the user taps the strip's hide button, the strip collapses to a small restore handle.
+    // Runtime-only: a fresh service start shows the strip again.
+    private var stripUserHidden = false
+    private var stripHandleView: View? = null
     // Componentised status-strip elements (each separated by a thin divider).
+    private var stripContext: TextView? = null
     private var stripClock: TextView? = null
     private var stripDate: TextView? = null
     private var stripWeather: TextView? = null
@@ -111,6 +134,10 @@ class OverlayService : Service() {
     private var stripWeek: TextView? = null
     private var stripRain: TextView? = null
     private var stripSun: TextView? = null
+    private var stripNavSpacer: View? = null
+    private var stripNavBack: View? = null
+    private var stripNavHome: View? = null
+    private var stripNavRecents: View? = null
     private var navView: View? = null
     private var tickerView: View? = null
     private var tickerText: TextView? = null
@@ -135,6 +162,13 @@ class OverlayService : Service() {
     private var mediaProjection: MediaProjection? = null
     private var countdownView: View? = null
     private var capturing = false
+    private val artworkCache = ConcurrentHashMap<String, Bitmap>()
+    private val failedArtwork = ConcurrentHashMap.newKeySet<String>()
+    private val artworkIo = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "now-playing-artwork").apply { isDaemon = true }
+    }
+    private val artworkRequestSerial = AtomicInteger(0)
+    @Volatile private var pendingArtworkUri: String? = null
 
     private val mediaListenerComponent by lazy { ComponentName(this, NotifyListenerService::class.java) }
     private var mediaSessionManager: MediaSessionManager? = null
@@ -174,6 +208,9 @@ class OverlayService : Service() {
         when (intent?.action) {
             ACTION_STOP -> { stopEverything(); stopSelf(); return START_NOT_STICKY }
             ACTION_REFRESH -> syncFromPrefs()
+            ACTION_SYNC_WIDGETS -> syncWidgetState()
+            ACTION_SYNC_TICKER -> syncTickerOnly()
+            ACTION_CONTEXT_CHANGED -> updateLiveText()
             ACTION_TEST_BANNER -> showBanner("Test banner", "This is how an ntfy message appears.")
             ACTION_BANNER -> showBanner(
                 intent.getStringExtra(EXTRA_TITLE).orEmpty().ifBlank { "Notification" },
@@ -196,6 +233,9 @@ class OverlayService : Service() {
                         }, main)
                     }
                     runCountdownThenCapture()
+                } else {
+                    capturing = false
+                    showBanner("Screenshot canceled", "Screen-capture permission was not granted.")
                 }
             }
             else -> syncFromPrefs()
@@ -234,10 +274,100 @@ class OverlayService : Service() {
         if (prefs.nowPlayingEnabled || (prefs.stripEnabled && prefs.stripShowStreaming)) startMediaSessions()
         else stopMediaSessions()
         if (prefs.noteEnabled) showNote()
-        if (prefs.stripEnabled) showStrip()
+        if (prefs.stripEnabled) { if (stripUserHidden) showStripHandle() else showStrip() }
         if (prefs.navEnabled) showNav()
-        if (prefs.tickerEnabled && prefs.tickerUrl.isNotBlank()) showTicker()
+        // The ticker rides with the strip: when the user has the strip hidden, keep the ticker
+        // hidden too so the bottom edge is fully clear.
+        if (prefs.tickerEnabled && prefs.tickerUrl.isNotBlank() && !stripUserHidden) showTicker()
+        syncBackgroundClients()
+    }
 
+    private fun syncWidgetState() {
+        if (!canDrawOverlays()) {
+            updateNotification(permissionNeeded = true)
+            ntfy?.stop(); ntfy = null; connected = false
+            weather?.stop(); weather = null; weatherCfgLoaded = ""; lastWeather = ""
+            return
+        }
+        updateNotification(permissionNeeded = false)
+
+        if (prefs.clockEnabled) {
+            if (clockView == null) showClock()
+        } else {
+            clockView?.let(::safeRemove)
+            clockView = null; clockTime = null; clockDate = null; clockDot = null
+        }
+
+        if (prefs.weatherEnabled) {
+            if (weatherView == null) showWeather()
+        } else {
+            weatherView?.let(::safeRemove)
+            weatherView = null; weatherTemp = null; weatherCond = null; weatherPlace = null
+        }
+
+        if (prefs.batteryEnabled) {
+            if (batteryView == null) showBattery()
+        } else {
+            batteryView?.let(::safeRemove)
+            batteryView = null; batteryText = null
+        }
+
+        if (prefs.noteEnabled) {
+            if (noteView == null) showNote() else noteText?.text = prefs.noteText.ifBlank { "(empty note — set it in the app)" }
+        } else {
+            noteView?.let(::safeRemove)
+            noteView = null; noteText = null
+        }
+
+        if (prefs.nowPlayingEnabled) {
+            if (nowPlayingView == null) showNowPlaying()
+            npAutoExpandPending = prefs.nowPlayingStartExpanded
+        } else {
+            hideNowPlayingFull()
+            nowPlayingView?.let(::safeRemove)
+            nowPlayingView = null; nowPlayingMiniArt = null; nowPlayingMiniGlyph = null
+            npAutoExpandPending = false
+        }
+
+        if (prefs.nowPlayingEnabled || (prefs.stripEnabled && prefs.stripShowStreaming)) startMediaSessions()
+        else stopMediaSessions()
+
+        syncBackgroundClients()
+    }
+
+    private fun syncTickerOnly() {
+        if (!canDrawOverlays()) {
+            updateNotification(permissionNeeded = true)
+            return
+        }
+        if (prefs.tickerEnabled && prefs.tickerUrl.isNotBlank() && !stripUserHidden) {
+            if (tickerView == null) showTicker()
+            else {
+                tickerAnim?.cancel()
+                tickerAnim = null
+                tickerText?.let { it.text = it.text.ifBlank { "…" } }
+                tickerView?.post { startTickerScroll() }
+            }
+        } else {
+            ticker?.stop(); ticker = null; tickerCfgLoaded = ""
+            tickerAnim?.cancel(); tickerAnim = null
+            tickerView?.let(::safeRemove)
+            tickerView = null; tickerText = null
+        }
+
+        val tickerUrl = prefs.tickerUrl
+        if (prefs.tickerEnabled && tickerUrl.isNotBlank() && tickerCfgLoaded != tickerUrl) {
+            ticker?.stop(); tickerCfgLoaded = tickerUrl
+            ticker = TickerClient(tickerUrl) { items ->
+                main.post {
+                    tickerText?.let { view -> view.text = items.joinToString("     •     ").ifBlank { "…" }; startTickerScroll() }
+                }
+            }.also { it.start() }
+        }
+        updateLiveText()
+    }
+
+    private fun syncBackgroundClients() {
         val topic = prefs.topic
         if (topic.isNotBlank()) {
             if (ntfy == null) {
@@ -282,22 +412,24 @@ class OverlayService : Service() {
     }
 
     private fun removeAllOverlays() {
-        listOf(clockView, weatherView, batteryView, nowPlayingView, nowPlayingFullView, noteView, stripView, navView, tickerView).forEach { it?.let(::safeRemove) }
+        listOf(clockView, weatherView, batteryView, nowPlayingView, nowPlayingFullView, noteView, stripView, stripHandleView, navView, tickerView).forEach { it?.let(::safeRemove) }
         draggables.clear()
-        clockView = null; weatherView = null; batteryView = null; nowPlayingView = null; noteView = null; stripView = null; navView = null
+        clockView = null; weatherView = null; batteryView = null; nowPlayingView = null; noteView = null; stripView = null; stripHandleView = null; navView = null
         clockTime = null; clockDate = null; clockDot = null
         weatherTemp = null; weatherCond = null; weatherPlace = null
         batteryText = null
-        nowPlayingFullView = null
+        stopNowPlayingProgressTicker()
         nowPlayingMiniArt = null; nowPlayingMiniGlyph = null
-        nowPlayingFullArt = null; nowPlayingFullTitle = null; nowPlayingFullSubtitle = null; nowPlayingFullApp = null; nowPlayingFullPlay = null
-        nowPlayingVisualizer = null
+        clearNowPlayingFullRefs()
         noteText = null
         streamingAnim?.cancel(); streamingAnim = null
+        stripContext = null
         stripClock = null; stripDate = null; stripWeather = null; stripBattery = null
         stripNetwork = null; stripNtfy = null
         stripStreamingDot = null; stripVpnDot = null; stripWifiBars = null
         stripWeek = null; stripRain = null; stripSun = null
+        stripNavSpacer = null; stripNavBack = null; stripNavHome = null; stripNavRecents = null
+        stripLp = null
         tickerAnim?.cancel(); tickerAnim = null
         tickerView = null; tickerText = null
     }
@@ -307,6 +439,7 @@ class OverlayService : Service() {
         ntfy?.stop(); ntfy = null
         weather?.stop(); weather = null; weatherCfgLoaded = ""
         ticker?.stop(); ticker = null; tickerCfgLoaded = ""
+        artworkIo.shutdownNow()
         stopMediaSessions()
         hideCountdown(); mediaProjection?.stop(); mediaProjection = null
         removeAllOverlays()
@@ -379,6 +512,8 @@ class OverlayService : Service() {
             background = rounded(0xFF2A2F39.toInt(), 20)
             clipToOutline = true
             setImageResource(android.R.drawable.ic_media_play)
+            isClickable = false
+            isFocusable = false
         }
         button.addView(art, FrameLayout.LayoutParams(dp(64), dp(64)).also { it.gravity = Gravity.CENTER })
         val glyph = TextView(this).apply {
@@ -407,8 +542,10 @@ class OverlayService : Service() {
             setBackgroundColor(0xF20A0C10.toInt())
             isClickable = true
         }
+        val layoutStyle = prefs.nowPlayingLayoutStyle
         val visualizer = NowPlayingVisualizerView(this).apply {
             accentColor = prefs.accentColor
+            style = prefs.nowPlayingVisualizerStyle
         }
         root.addView(visualizer, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
@@ -428,23 +565,45 @@ class OverlayService : Service() {
             it.setMargins(0, dp(28), dp(34), 0)
         })
 
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(88), dp(86), dp(88), dp(80))
+        // Screen-off button, sits just left of the close (×). Locks the display via the
+        // accessibility service (GLOBAL_ACTION_LOCK_SCREEN turns the screen off + locks).
+        val screenOff = TextView(this).apply {
+            text = "🔒"
+            setTextColor(Color.WHITE)
+            textSize = scaled(24f)
+            gravity = Gravity.CENTER
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            background = circle(0x662A303A)
+            setOnClickListener {
+                if (!NavAccessibilityService.lock()) {
+                    showBanner("Screen off unavailable", "Enable the accessibility service first.")
+                }
+            }
         }
+        root.addView(screenOff, FrameLayout.LayoutParams(dp(58), dp(58)).also {
+            it.gravity = Gravity.TOP or Gravity.END
+            it.setMargins(0, dp(28), dp(106), 0) // 34 (close margin) + 58 (close width) + 14 gap
+        })
+
         val art = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             background = rounded(0xFF202631.toInt(), 34)
             clipToOutline = true
             elevation = dp(18).toFloat()
             setImageResource(android.R.drawable.ic_media_play)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { /* keep the full now-playing overlay open */ }
         }
-        content.addView(art, LinearLayout.LayoutParams(dp(430), dp(430)).also { it.rightMargin = dp(54) })
 
         val info = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
+        }
+        // Source-app row: the playing app's icon (e.g. the Spotify logo) plus its name.
+        val appIcon = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            visibility = View.GONE
         }
         val app = TextView(this).apply {
             text = "NOW PLAYING"
@@ -452,6 +611,12 @@ class OverlayService : Service() {
             textSize = scaled(14f)
             typeface = Typeface.create("monospace", Typeface.BOLD)
             letterSpacing = 0.12f
+        }
+        val appRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(appIcon, LinearLayout.LayoutParams(dp(28), dp(28)).also { it.rightMargin = dp(10) })
+            addView(app)
         }
         val title = TextView(this).apply {
             text = "Nothing playing"
@@ -466,10 +631,43 @@ class OverlayService : Service() {
             text = "Start media in any app"
             setTextColor(0xFFC2C8D2.toInt())
             textSize = scaled(24f)
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(0, dp(10), 0, dp(8))
+        }
+        val album = TextView(this).apply {
+            text = ""
+            setTextColor(0xFF98A0AC.toInt())
+            textSize = scaled(18f)
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
-            setPadding(0, dp(10), 0, dp(34))
+            setPadding(0, 0, 0, dp(22))
+            visibility = View.GONE
         }
+
+        // Playback progress: elapsed — bar — total.
+        val elapsed = TextView(this).apply {
+            text = "0:00"; setTextColor(0xFFC2C8D2.toInt()); textSize = scaled(16f)
+            typeface = Typeface.create("monospace", Typeface.NORMAL)
+        }
+        val durationLabel = TextView(this).apply {
+            text = "0:00"; setTextColor(0xFFC2C8D2.toInt()); textSize = scaled(16f)
+            typeface = Typeface.create("monospace", Typeface.NORMAL)
+        }
+        val progressBar = android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 1000
+            progressTintList = android.content.res.ColorStateList.valueOf(prefs.accentColor)
+            progressBackgroundTintList = android.content.res.ColorStateList.valueOf(0x44FFFFFF)
+        }
+        val progressRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dp(28))
+            addView(elapsed)
+            addView(progressBar, LinearLayout.LayoutParams(0, dp(6), 1f).also { it.leftMargin = dp(16); it.rightMargin = dp(16) })
+            addView(durationLabel)
+        }
+
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -489,14 +687,76 @@ class OverlayService : Service() {
         val play = bigControl(">", 104) { togglePlayback() }
         bigControl(">>") { activeMediaController?.transportControls?.skipToNext() }
 
-        info.addView(app)
+        info.addView(appRow)
         info.addView(title, LinearLayout.LayoutParams(dp(840), ViewGroup.LayoutParams.WRAP_CONTENT))
         info.addView(subtitle, LinearLayout.LayoutParams(dp(760), ViewGroup.LayoutParams.WRAP_CONTENT))
+        info.addView(album, LinearLayout.LayoutParams(dp(760), ViewGroup.LayoutParams.WRAP_CONTENT))
+        if (prefs.nowPlayingShowProgress) info.addView(progressRow, LinearLayout.LayoutParams(dp(760), ViewGroup.LayoutParams.WRAP_CONTENT))
         info.addView(controls)
-        content.addView(info, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
-        root.addView(content, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
-        ))
+
+        when (layoutStyle) {
+            "centered" -> {
+                info.gravity = Gravity.CENTER_HORIZONTAL
+                appRow.gravity = Gravity.CENTER
+                app.gravity = Gravity.CENTER
+                title.gravity = Gravity.CENTER
+                subtitle.gravity = Gravity.CENTER
+                album.gravity = Gravity.CENTER
+                progressRow.gravity = Gravity.CENTER_VERTICAL
+                controls.gravity = Gravity.CENTER
+                subtitle.maxLines = 3
+                title.textSize = scaled(54f)
+                subtitle.textSize = scaled(27f)
+                val content = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    setPadding(dp(88), dp(68), dp(88), dp(70))
+                }
+                content.addView(art, LinearLayout.LayoutParams(dp(500), dp(500)).also {
+                    it.gravity = Gravity.CENTER_HORIZONTAL
+                    it.bottomMargin = dp(30)
+                })
+                content.addView(info, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ))
+                root.addView(content, FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ).also { it.gravity = Gravity.CENTER })
+            }
+            "poster" -> {
+                info.gravity = Gravity.CENTER_VERTICAL
+                app.gravity = Gravity.START
+                title.gravity = Gravity.START
+                subtitle.gravity = Gravity.START
+                subtitle.maxLines = 4
+                title.textSize = scaled(50f)
+                subtitle.textSize = scaled(24f)
+                val content = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(88), dp(78), dp(88), dp(78))
+                }
+                content.addView(art, LinearLayout.LayoutParams(dp(430), dp(620)).also {
+                    it.rightMargin = dp(48)
+                })
+                content.addView(info, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                root.addView(content, FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+                ).also { it.gravity = Gravity.CENTER })
+            }
+            else -> {
+                val content = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(88), dp(86), dp(88), dp(80))
+                }
+                content.addView(art, LinearLayout.LayoutParams(dp(430), dp(430)).also { it.rightMargin = dp(54) })
+                content.addView(info, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+                root.addView(content, FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+                ))
+            }
+        }
 
         nowPlayingFullView = root
         nowPlayingVisualizer = visualizer
@@ -505,6 +765,11 @@ class OverlayService : Service() {
         nowPlayingFullSubtitle = subtitle
         nowPlayingFullApp = app
         nowPlayingFullPlay = play
+        nowPlayingFullAppIcon = appIcon
+        nowPlayingFullAlbum = album
+        nowPlayingFullProgress = progressBar
+        nowPlayingFullElapsed = elapsed
+        nowPlayingFullDuration = durationLabel
 
         val lp = baseParams(focusable = true).apply {
             width = WindowManager.LayoutParams.MATCH_PARENT
@@ -512,26 +777,73 @@ class OverlayService : Service() {
             gravity = Gravity.CENTER
         }
         if (!safeAddView(root, lp)) {
-            nowPlayingFullView = null; nowPlayingVisualizer = null; nowPlayingFullArt = null
-            nowPlayingFullTitle = null; nowPlayingFullSubtitle = null; nowPlayingFullApp = null; nowPlayingFullPlay = null
+            clearNowPlayingFullRefs()
             return
         }
         root.alpha = 0f
         root.animate().alpha(1f).setDuration(180).start()
         updateNowPlaying()
+        startNowPlayingProgressTicker()
     }
 
     private fun hideNowPlayingFull() {
         val root = nowPlayingFullView ?: return
+        stopNowPlayingProgressTicker()
         nowPlayingVisualizer?.playing = false
         root.animate().alpha(0f).setDuration(140).withEndAction { safeRemove(root) }.start()
+        clearNowPlayingFullRefs()
+    }
+
+    /** Null every reference into the full now-playing card. */
+    private fun clearNowPlayingFullRefs() {
         nowPlayingFullView = null
+        nowPlayingVisualizer = null
         nowPlayingFullArt = null
         nowPlayingFullTitle = null
         nowPlayingFullSubtitle = null
         nowPlayingFullApp = null
         nowPlayingFullPlay = null
-        nowPlayingVisualizer = null
+        nowPlayingFullAppIcon = null
+        nowPlayingFullAlbum = null
+        nowPlayingFullProgress = null
+        nowPlayingFullElapsed = null
+        nowPlayingFullDuration = null
+    }
+
+    private fun startNowPlayingProgressTicker() {
+        main.removeCallbacks(nowPlayingProgressTick)
+        if (prefs.nowPlayingShowProgress && nowPlayingFullProgress != null) main.post(nowPlayingProgressTick)
+    }
+
+    private fun stopNowPlayingProgressTicker() { main.removeCallbacks(nowPlayingProgressTick) }
+
+    /** Advance the progress bar + elapsed/total labels from the live playback state. */
+    private fun updateNowPlayingProgress() {
+        val bar = nowPlayingFullProgress ?: return
+        val controller = activeMediaController
+        val state = controller?.playbackState
+        val duration = controller?.metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
+        if (state == null || duration <= 0L) {
+            nowPlayingFullElapsed?.text = "0:00"
+            nowPlayingFullDuration?.text = "0:00"
+            bar.progress = 0
+            return
+        }
+        // Estimate the live position: last reported position + time elapsed since, scaled by speed.
+        var pos = state.position
+        if (state.state == PlaybackState.STATE_PLAYING) {
+            val delta = android.os.SystemClock.elapsedRealtime() - state.lastPositionUpdateTime
+            pos += (delta * state.playbackSpeed).toLong()
+        }
+        pos = pos.coerceIn(0L, duration)
+        bar.progress = ((pos * 1000L) / duration).toInt()
+        nowPlayingFullElapsed?.text = formatClock(pos)
+        nowPlayingFullDuration?.text = formatClock(duration)
+    }
+
+    private fun formatClock(ms: Long): String {
+        val totalSec = (ms / 1000L).toInt()
+        return "%d:%02d".format(totalSec / 60, totalSec % 60)
     }
 
     private fun startMediaSessions() {
@@ -599,6 +911,7 @@ class OverlayService : Service() {
             npAutoExpandPending = false
             showNowPlayingFull()
         }
+        updateNowPlayingProgress()
 
         if (mediaAccessMissing) {
             nowPlayingMiniGlyph?.text = "!"
@@ -608,6 +921,8 @@ class OverlayService : Service() {
             nowPlayingFullApp?.text = "NOW PLAYING"
             nowPlayingFullPlay?.text = ">"
             nowPlayingFullArt?.setImageResource(android.R.drawable.ic_dialog_info)
+            nowPlayingFullAlbum?.visibility = View.GONE
+            nowPlayingFullAppIcon?.visibility = View.GONE
             return
         }
         if (controller == null || metadata == null) {
@@ -618,6 +933,8 @@ class OverlayService : Service() {
             nowPlayingFullApp?.text = "NOW PLAYING"
             nowPlayingFullPlay?.text = ">"
             nowPlayingFullArt?.setImageResource(android.R.drawable.ic_media_play)
+            nowPlayingFullAlbum?.visibility = View.GONE
+            nowPlayingFullAppIcon?.visibility = View.GONE
             return
         }
 
@@ -628,15 +945,26 @@ class OverlayService : Service() {
             ?: metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
             ?: metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE)
             ?: appLabel(controller.packageName)
-        val art = metadata.getBitmap(MediaMetadata.METADATA_KEY_ART)
-            ?: metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
-            ?: metadata.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+        val art = loadArtwork(metadata)
 
         nowPlayingMiniGlyph?.text = if (playing) "||" else ">"
         nowPlayingFullTitle?.text = title
         nowPlayingFullSubtitle?.text = artist
         nowPlayingFullApp?.text = appLabel(controller.packageName).uppercase(Locale.getDefault())
         nowPlayingFullPlay?.text = if (playing) "||" else ">"
+
+        // Album line (hidden when absent or identical to the track title).
+        val album = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM)
+        nowPlayingFullAlbum?.let {
+            if (!album.isNullOrBlank() && !album.equals(title, ignoreCase = true)) {
+                it.text = album; it.visibility = View.VISIBLE
+            } else it.visibility = View.GONE
+        }
+        // Source-app icon (e.g. the Spotify logo).
+        nowPlayingFullAppIcon?.let { iv ->
+            val icon = try { packageManager.getApplicationIcon(controller.packageName) } catch (_: Exception) { null }
+            if (icon != null) { iv.setImageDrawable(icon); iv.visibility = View.VISIBLE } else iv.visibility = View.GONE
+        }
         if (art != null) {
             nowPlayingMiniArt?.setImageBitmap(art)
             nowPlayingFullArt?.setImageBitmap(art)
@@ -644,6 +972,112 @@ class OverlayService : Service() {
             nowPlayingMiniArt?.setImageResource(android.R.drawable.ic_media_play)
             nowPlayingFullArt?.setImageResource(android.R.drawable.ic_media_play)
         }
+    }
+
+    private fun loadArtwork(metadata: MediaMetadata): Bitmap? {
+        metadata.getBitmap(MediaMetadata.METADATA_KEY_ART)?.let { return it }
+        metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)?.let { return it }
+        metadata.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)?.let { return it }
+
+        val uriString = listOf(
+            metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI),
+            metadata.getString(MediaMetadata.METADATA_KEY_ART_URI),
+            metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
+        ).firstOrNull { !it.isNullOrBlank() } ?: return null
+
+        val uri = try {
+            android.net.Uri.parse(uriString)
+        } catch (_: Exception) {
+            return null
+        }
+
+        val scheme = uri.scheme?.lowercase(Locale.US)
+        if (scheme == "http" || scheme == "https") {
+            artworkCache[uriString]?.let { return it }
+            if (!failedArtwork.contains(uriString) && pendingArtworkUri != uriString) {
+                requestRemoteArtwork(uriString)
+            }
+            return null
+        }
+
+        return try {
+            contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun requestRemoteArtwork(uriString: String) {
+        pendingArtworkUri = uriString
+        val serial = artworkRequestSerial.incrementAndGet()
+        artworkIo.execute {
+            val bitmap = try {
+                fetchRemoteArtwork(uriString)
+            } catch (_: Exception) {
+                null
+            }
+            if (bitmap != null) {
+                artworkCache[uriString] = bitmap
+                failedArtwork.remove(uriString)
+            } else {
+                failedArtwork.add(uriString)
+            }
+            main.post {
+                if (artworkRequestSerial.get() != serial) return@post
+                if (pendingArtworkUri == uriString) pendingArtworkUri = null
+                if (activeMediaController?.metadata != null) updateNowPlaying()
+            }
+        }
+    }
+
+    private fun fetchRemoteArtwork(uriString: String): Bitmap? {
+        val bytes = fetchRemoteBytes(uriString) ?: return null
+        return decodeArtworkBytes(bytes)
+    }
+
+    private fun fetchRemoteBytes(uriString: String): ByteArray? {
+        val conn = (URL(uriString).openConnection() as? HttpURLConnection) ?: return null
+        return try {
+            conn.instanceFollowRedirects = true
+            conn.connectTimeout = 4000
+            conn.readTimeout = 4000
+            conn.inputStream.use { input ->
+                ByteArrayOutputStream().use { output ->
+                    val buffer = ByteArray(8 * 1024)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        output.write(buffer, 0, read)
+                    }
+                    output.toByteArray()
+                }
+            }
+        } finally {
+            try { conn.disconnect() } catch (_: Exception) {}
+        }
+    }
+
+    private fun decodeArtworkBytes(bytes: ByteArray): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+        val sample = calculateInSampleSize(bounds.outWidth, bounds.outHeight, 1024, 1024)
+        val opts = BitmapFactory.Options().apply {
+            inSampleSize = sample
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+    }
+
+    private fun calculateInSampleSize(srcWidth: Int, srcHeight: Int, reqWidth: Int, reqHeight: Int): Int {
+        var sample = 1
+        var halfWidth = srcWidth / 2
+        var halfHeight = srcHeight / 2
+        while ((halfHeight / sample) >= reqHeight && (halfWidth / sample) >= reqWidth) {
+            sample *= 2
+        }
+        return sample.coerceAtLeast(1)
     }
 
     private fun togglePlayback() {
@@ -863,7 +1297,12 @@ class OverlayService : Service() {
         }
         fun textSeg(): TextView {
             sep()
-            val t = TextView(this).apply { setTextColor(0xFFD7DCE4.toInt()); textSize = scaled(14f) }
+            val t = TextView(this).apply {
+                setTextColor(0xFFD7DCE4.toInt())
+                textSize = scaled(14f)
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+            }
             bar.addView(t); return t
         }
         fun dot(diameter: Int): View {
@@ -871,9 +1310,37 @@ class OverlayService : Service() {
             bar.addView(v, LinearLayout.LayoutParams(dp(diameter), dp(diameter)))
             return v
         }
+        fun tinyNavButton(glyph: String, label: String, action: () -> Boolean): View {
+            val btn = TextView(this).apply {
+                text = glyph
+                setTextColor(0xFFD7DCE4.toInt())
+                textSize = scaled(15f)
+                gravity = Gravity.CENTER
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                background = rounded(withAlpha(CARD_BASE, prefs.overlayOpacity), 12)
+                setPadding(dp(14), dp(4), dp(14), dp(4))
+                minWidth = dp(48)
+                minHeight = dp(30)
+                isAllCaps = false
+                contentDescription = label
+                setOnClickListener {
+                    if (!NavAccessibilityService.isEnabled) {
+                        showBanner("Navigation not active", "Enable the Overlays accessibility service (see the app's Navigation tab).")
+                    } else if (!action()) {
+                        showBanner("$label unavailable", "The Portal system UI didn't accept the action.")
+                    }
+                }
+            }
+            bar.addView(btn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).also {
+                it.leftMargin = dp(3)
+                it.rightMargin = dp(3)
+            })
+            return btn
+        }
 
         if (prefs.stripShowClock) stripClock = textSeg()
         if (prefs.stripShowDate) stripDate = textSeg()
+        if (prefs.stripShowContext) stripContext = textSeg()
         if (prefs.stripShowWeather) stripWeather = textSeg()
         if (prefs.stripShowBattery) stripBattery = textSeg()
         if (prefs.stripShowNetwork) stripNetwork = textSeg()
@@ -911,6 +1378,37 @@ class OverlayService : Service() {
         if (prefs.stripShowRain) stripRain = textSeg()
         if (prefs.stripShowSun) stripSun = textSeg()
         if (prefs.stripShowNtfy) stripNtfy = textSeg()
+        if (prefs.stripShowNavButtons) {
+            sep()
+            stripNavSpacer = View(this).apply { layoutParams = LinearLayout.LayoutParams(0, 0, 1f) }
+            bar.addView(stripNavSpacer)
+            stripNavBack = tinyNavButton("‹", "Back", action = { NavAccessibilityService.back() })
+            stripNavHome = tinyNavButton("⌂", "Home", action = { NavAccessibilityService.home() })
+            stripNavRecents = tinyNavButton("▢", "Recents", action = { NavAccessibilityService.recents() })
+        }
+
+        // Hide button at the far right: collapses the strip to a small restore handle so whatever
+        // is underneath (e.g. the bottom of a page) can be read. If there were no nav buttons, a
+        // flexible spacer pushes it to the edge.
+        if (!prefs.stripShowNavButtons) {
+            bar.addView(View(this), LinearLayout.LayoutParams(0, 0, 1f))
+        }
+        val hideBtn = TextView(this).apply {
+            text = if (prefs.stripPosition == "top") "▴" else "▾"
+            setTextColor(0xFF8A919D.toInt())
+            textSize = scaled(15f)
+            gravity = Gravity.CENTER
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            background = rounded(withAlpha(CARD_BASE, prefs.overlayOpacity), 12)
+            setPadding(dp(12), dp(2), dp(12), dp(2))
+            minWidth = dp(40); minHeight = dp(26)
+            isAllCaps = false
+            contentDescription = "Hide status strip"
+            setOnClickListener { hideStrip() }
+        }
+        bar.addView(hideBtn, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).also { it.leftMargin = dp(8) })
 
         val lp = baseParams(height = dp(36)).apply {
             width = WindowManager.LayoutParams.MATCH_PARENT
@@ -919,7 +1417,60 @@ class OverlayService : Service() {
         }
         if (!safeAddView(bar, lp)) return
         stripView = bar
+        stripLp = lp
         updateLiveText()
+    }
+
+    /** Collapse the strip (and the ticker that rides with it) to a small restore handle. */
+    private fun hideStrip() {
+        stripUserHidden = true
+        stripView?.let { safeRemove(it) }
+        stripView = null
+        stripLp = null
+        hideTicker()
+        showStripHandle()
+    }
+
+    /** Bring the strip and ticker back and drop the restore handle. */
+    private fun restoreStrip() {
+        stripUserHidden = false
+        stripHandleView?.let { safeRemove(it) }
+        stripHandleView = null
+        if (prefs.stripEnabled) showStrip()
+        if (prefs.tickerEnabled && prefs.tickerUrl.isNotBlank()) showTicker()
+    }
+
+    /** Remove just the ticker overlay; the feed client keeps running so restore is instant. */
+    private fun hideTicker() {
+        tickerAnim?.cancel(); tickerAnim = null
+        tickerView?.let(::safeRemove)
+        tickerView = null; tickerText = null
+    }
+
+    /** A small tappable chevron pinned to the strip's edge while the strip is hidden. */
+    private fun showStripHandle() {
+        if (stripHandleView != null) return
+        val handle = TextView(this).apply {
+            text = if (prefs.stripPosition == "top") "▾" else "▴"
+            setTextColor(0xFFD7DCE4.toInt())
+            textSize = scaled(15f)
+            gravity = Gravity.CENTER
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            background = rounded(withAlpha(STRIP_BASE, prefs.overlayOpacity), 14)
+            setPadding(dp(18), dp(5), dp(18), dp(5))
+            isAllCaps = false
+            contentDescription = "Show status strip"
+            setOnClickListener { restoreStrip() }
+        }
+        val lp = baseParams().apply {
+            width = WindowManager.LayoutParams.WRAP_CONTENT
+            height = WindowManager.LayoutParams.WRAP_CONTENT
+            gravity = Gravity.END or if (prefs.stripPosition == "top") Gravity.TOP else Gravity.BOTTOM
+            x = dp(16)
+            y = if (prefs.stripPosition == "top") dp(70) else dp(8)
+        }
+        if (!safeAddView(handle, lp)) return
+        stripHandleView = handle
     }
 
     // ---- ticker ----------------------------------------------------------
@@ -940,11 +1491,11 @@ class OverlayService : Service() {
         val lp = baseParams(height = dp(30)).apply {
             width = WindowManager.LayoutParams.MATCH_PARENT
             gravity = Gravity.START or if (top) Gravity.TOP else Gravity.BOTTOM
-            // Offset past the status strip when the ticker shares the same edge, and clear Portal's
-            // top system pills when pinned to the top.
+            // Top is pinned to the screen edge. Bottom moves above the bottom strip when that strip
+            // is also on the bottom edge.
             y = when {
-                top -> if (prefs.stripEnabled && prefs.stripPosition == "top") dp(70 + 36) else dp(70)
-                prefs.stripEnabled && prefs.stripPosition != "top" -> dp(36)
+                top -> 0
+                prefs.stripEnabled && prefs.stripPosition == "bottom" -> dp(36)
                 else -> 0
             }
         }
@@ -1107,6 +1658,7 @@ class OverlayService : Service() {
         if (batteryText != null) batteryText?.text = batteryString()
         noteText?.text = prefs.noteText.ifBlank { "(empty note — set it in the app)" }
 
+        stripContext?.text = UiContextState.displayLabel(this)
         stripClock?.text = timeFmt.format(now)
         stripDate?.text = dateFmt.format(now)
         stripWeather?.text = lastWeather.ifBlank { "…" }
@@ -1118,6 +1670,18 @@ class OverlayService : Service() {
         stripNtfy?.text = if (prefs.topic.isBlank()) "no topic"
             else if (connected) "ntfy connected" else "ntfy reconnecting…"
         updateStripIndicators()
+        updateStripPlacement()
+    }
+
+    /** Keep the top strip below Portal's built-in system pills. */
+    private fun updateStripPlacement() {
+        val view = stripView ?: return
+        val lp = stripLp ?: return
+        val targetY = if (prefs.stripPosition == "top") dp(70) else 0
+        if (lp.y != targetY) {
+            lp.y = targetY
+            try { wm.updateViewLayout(view, lp) } catch (_: Exception) {}
+        }
     }
 
     /** ISO-8601 week number, e.g. "W25". Local, no network. */
@@ -1291,7 +1855,12 @@ class OverlayService : Service() {
         if (capturing) return
         capturing = true
         var n = prefs.screenshotDelay
-        if (n <= 0) { hideCountdown(); capture(); return }
+        if (n <= 0) {
+            hideCountdown()
+            removeAllOverlays()
+            main.postDelayed({ capture() }, 180)
+            return
+        }
 
         val label = TextView(this).apply {
             setTextColor(Color.WHITE); textSize = scaled(96f); gravity = Gravity.CENTER
@@ -1315,6 +1884,7 @@ class OverlayService : Service() {
             override fun run() {
                 if (n <= 0) {
                     hideCountdown()
+                    removeAllOverlays()
                     main.postDelayed({ capture() }, 180) // let the overlay clear the captured frame
                     return
                 }
@@ -1332,31 +1902,57 @@ class OverlayService : Service() {
 
     private fun capture() {
         val mp = mediaProjection
-        if (mp == null) { capturing = false; showBanner("Screenshot failed", "Capture permission was lost — tap the button again."); return }
+        if (mp == null) {
+            capturing = false
+            showBanner("Screenshot failed", "Capture permission was lost — tap the button again.")
+            syncFromPrefs()
+            return
+        }
         val metrics = DisplayMetrics().also { wm.defaultDisplay.getRealMetrics(it) }
         val w = metrics.widthPixels; val h = metrics.heightPixels; val dpi = metrics.densityDpi
         val reader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
         val thread = HandlerThread("shot").also { it.start() }
         val bg = Handler(thread.looper)
         var vd: VirtualDisplay? = null
+        // The virtual display delivers several frames; only the first should be saved.
+        val handled = java.util.concurrent.atomic.AtomicBoolean(false)
 
         fun cleanup() {
             try { vd?.release() } catch (_: Exception) {}
             try { reader.close() } catch (_: Exception) {}
             thread.quitSafely()
             capturing = false
+            syncFromPrefs()
         }
 
         reader.setOnImageAvailableListener({ r ->
             val image = try { r.acquireLatestImage() } catch (_: Exception) { null } ?: return@setOnImageAvailableListener
+            if (!handled.compareAndSet(false, true)) { image.close(); return@setOnImageAvailableListener }
             try {
                 val plane = image.planes[0]
+                val pixelStride = plane.pixelStride
                 val rowStride = plane.rowStride
-                val full = Bitmap.createBitmap(rowStride / plane.pixelStride, h, Bitmap.Config.ARGB_8888)
-                full.copyPixelsFromBuffer(plane.buffer)
-                val bmp = if (full.width != w) Bitmap.createBitmap(full, 0, 0, w, h) else full
-                val uri = saveToGallery(bmp)
-                main.post { showBanner("Screenshot saved", if (uri != null) "Saved to Pictures/Screenshots." else "Couldn't write the file.") }
+                val buffer = plane.buffer
+                val strideW = rowStride / pixelStride
+                // The plane buffer can end on a short final row (GPU stride padding), so a bitmap
+                // sized to the full rowStride*h would make copyPixelsFromBuffer memcpy past the
+                // buffer end — a native SIGSEGV that the catch below can't stop (it took the app
+                // down on Portal/Android 9). Bound the copy to the rows the buffer actually holds.
+                val rows = minOf(h, buffer.remaining() / rowStride)
+                if (rows <= 0) {
+                    main.post { showBanner("Screenshot failed", "Empty capture buffer.") }
+                } else {
+                    val full = Bitmap.createBitmap(strideW, rows, Bitmap.Config.ARGB_8888)
+                    full.copyPixelsFromBuffer(buffer)
+                    val cropW = minOf(w, strideW)
+                    val bmp = if (full.width != cropW || full.height != rows)
+                        Bitmap.createBitmap(full, 0, 0, cropW, rows) else full
+                    val where = saveShot(bmp)
+                    main.post {
+                        if (where != null) showBanner("Screenshot saved", where)
+                        else showBanner("Screenshot failed", "Couldn't write the file.")
+                    }
+                }
             } catch (e: Exception) {
                 main.post { showBanner("Screenshot failed", e.message ?: "Unknown error.") }
             } finally {
@@ -1375,29 +1971,70 @@ class OverlayService : Service() {
         }
     }
 
-    private fun saveToGallery(bmp: Bitmap): android.net.Uri? {
+    /**
+     * Saves [bmp] and returns a short "where it landed" message for the banner, or null only if
+     * every path failed.
+     *
+     * Both branches go through MediaStore on purpose. On Portal/Android 9 the app process never
+     * gets the sdcard_rw gid (it targets SDK 29 and WRITE_EXTERNAL_STORAGE is maxSdkVersion=28), so
+     * a direct File write to shared storage fails even when the permission is "granted" — but the
+     * media provider performs the write under its own uid, so an openOutputStream on a MediaStore
+     * uri works. If even that fails we fall back to the app-private external dir (no permission
+     * needed) so a screenshot is never silently lost.
+     */
+    private fun saveShot(bmp: Bitmap): String? {
         val name = "portal_${System.currentTimeMillis()}.png"
-        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+
+        try {
             val values = ContentValues().apply {
                 put(MediaStore.Images.Media.DISPLAY_NAME, name)
                 put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Screenshots")
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Screenshots")
+                } else {
+                    // Pre-Q has no RELATIVE_PATH; point DATA at Pictures/Screenshots and let the
+                    // media provider create the folder and write the file under its own uid.
+                    val dir = java.io.File(
+                        android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES),
+                        "Screenshots"
+                    )
+                    put(MediaStore.Images.Media.DATA, java.io.File(dir, name).absolutePath)
+                }
             }
-            val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return null
-            try {
-                contentResolver.openOutputStream(uri)?.use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                uri
-            } catch (_: Exception) { null }
-        } else {
-            val picturesDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES)
-            val screenshotsDir = java.io.File(picturesDir, "Screenshots")
-            if (!screenshotsDir.exists() && !screenshotsDir.mkdirs()) return null
-            val file = java.io.File(screenshotsDir, name)
-            try {
-                java.io.FileOutputStream(file).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                android.net.Uri.fromFile(file)
-            } catch (_: Exception) { null }
+            val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            if (uri != null) {
+                try {
+                    contentResolver.openOutputStream(uri)?.use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                    return "Saved to Pictures/Screenshots."
+                } catch (_: Exception) {
+                    try { contentResolver.delete(uri, null, null) } catch (_: Exception) {}
+                }
+            }
+        } catch (_: Exception) {}
+
+        // No-permission fallback: the app-private external dir is always writable.
+        val appDir = getExternalFilesDir(android.os.Environment.DIRECTORY_PICTURES)
+        if (appDir != null && (appDir.exists() || appDir.mkdirs())) {
+            val file = java.io.File(appDir, name)
+            if (writePng(bmp, file)) {
+                scanFile(file)
+                return "Saved to app storage (couldn't reach the gallery)."
+            }
         }
+        return null
+    }
+
+    private fun writePng(bmp: Bitmap, file: java.io.File): Boolean = try {
+        java.io.FileOutputStream(file).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        true
+    } catch (_: Exception) { false }
+
+    private fun scanFile(file: java.io.File) {
+        try {
+            android.media.MediaScannerConnection.scanFile(
+                this, arrayOf(file.absolutePath), arrayOf("image/png"), null
+            )
+        } catch (_: Exception) {}
     }
 
     // ---- view / window helpers -------------------------------------------
@@ -1569,10 +2206,13 @@ class OverlayService : Service() {
 
     companion object {
         const val ACTION_REFRESH = "com.portal.overlays.REFRESH"
+        const val ACTION_SYNC_WIDGETS = "com.portal.overlays.SYNC_WIDGETS"
+        const val ACTION_SYNC_TICKER = "com.portal.overlays.SYNC_TICKER"
         const val ACTION_STOP = "com.portal.overlays.STOP"
         const val ACTION_TEST_BANNER = "com.portal.overlays.TEST_BANNER"
         const val ACTION_BANNER = "com.portal.overlays.BANNER"
         const val ACTION_MEDIA_REFRESH = "com.portal.overlays.MEDIA_REFRESH"
+        const val ACTION_CONTEXT_CHANGED = "com.portal.overlays.CONTEXT_CHANGED"
         const val ACTION_ALERT = "com.portal.overlays.ALERT"
         const val ACTION_SCREENSHOT = "com.portal.overlays.SCREENSHOT"
         const val ACTION_PROJECTION_RESULT = "com.portal.overlays.PROJECTION_RESULT"

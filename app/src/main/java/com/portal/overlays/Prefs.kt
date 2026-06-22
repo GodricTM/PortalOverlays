@@ -57,7 +57,7 @@ class Prefs(context: Context) {
     var weatherEnabled: Boolean
         get() = bool("weatherEnabled", false); set(v) = setBool("weatherEnabled", v)
     var weatherCity: String
-        get() = str("weatherCity", ""); set(v) = setStr("weatherCity", v.trim())
+        get() = str("weatherCity", "New York"); set(v) = setStr("weatherCity", v.trim())
     var weatherFahrenheit: Boolean
         get() = bool("weatherFahrenheit", false); set(v) = setBool("weatherFahrenheit", v)
 
@@ -68,10 +68,19 @@ class Prefs(context: Context) {
     // ---- now-playing widget ----------------------------------------------
     /** Float the currently playing track (art + title + transport) using notification access. */
     var nowPlayingEnabled: Boolean
-        get() = bool("nowPlayingEnabled", false); set(v) = setBool("nowPlayingEnabled", v)
+        get() = bool("nowPlayingEnabled", true); set(v) = setBool("nowPlayingEnabled", v)
     /** When media is playing, open the full card automatically instead of starting as a small bubble. */
     var nowPlayingStartExpanded: Boolean
         get() = bool("nowPlayingStartExpanded", false); set(v) = setBool("nowPlayingStartExpanded", v)
+    /** Background visualizer style for the full-screen now-playing overlay. */
+    var nowPlayingVisualizerStyle: String
+        get() = str("nowPlayingVisualizerStyle", "waves"); set(v) = setStr("nowPlayingVisualizerStyle", v)
+    /** Full-screen layout style for the now-playing overlay. */
+    var nowPlayingLayoutStyle: String
+        get() = str("nowPlayingLayoutStyle", "sidecar"); set(v) = setStr("nowPlayingLayoutStyle", v)
+    /** Show the playback progress bar and elapsed/total time on the full now-playing card. */
+    var nowPlayingShowProgress: Boolean
+        get() = bool("nowPlayingShowProgress", true); set(v) = setBool("nowPlayingShowProgress", v)
 
     // ---- sticky note widget ----------------------------------------------
     var noteEnabled: Boolean
@@ -90,7 +99,7 @@ class Prefs(context: Context) {
     var stripShowDate: Boolean
         get() = bool("stripShowDate", true); set(v) = setBool("stripShowDate", v)
     var stripShowWeather: Boolean
-        get() = bool("stripShowWeather", false); set(v) = setBool("stripShowWeather", v)
+        get() = bool("stripShowWeather", true); set(v) = setBool("stripShowWeather", v)
     var stripShowBattery: Boolean
         get() = bool("stripShowBattery", false); set(v) = setBool("stripShowBattery", v)
     var stripShowNetwork: Boolean
@@ -105,16 +114,22 @@ class Prefs(context: Context) {
         get() = bool("stripShowVpn", false); set(v) = setBool("stripShowVpn", v)
     /** Wi-Fi signal bars; tap to show the device IP. */
     var stripShowWifi: Boolean
-        get() = bool("stripShowWifi", false); set(v) = setBool("stripShowWifi", v)
+        get() = bool("stripShowWifi", true); set(v) = setBool("stripShowWifi", v)
     /** ISO week number (e.g. "W25"). Local-only, no network. */
     var stripShowWeek: Boolean
-        get() = bool("stripShowWeek", false); set(v) = setBool("stripShowWeek", v)
+        get() = bool("stripShowWeek", true); set(v) = setBool("stripShowWeek", v)
     /** Rain in the next hour from Open-Meteo (e.g. "🌧 in 40min" / "no rain 1h"). */
     var stripShowRain: Boolean
-        get() = bool("stripShowRain", false); set(v) = setBool("stripShowRain", v)
+        get() = bool("stripShowRain", true); set(v) = setBool("stripShowRain", v)
     /** Time until the next sunset or sunrise from Open-Meteo (e.g. "☀ 3h12m"). */
     var stripShowSun: Boolean
-        get() = bool("stripShowSun", false); set(v) = setBool("stripShowSun", v)
+        get() = bool("stripShowSun", true); set(v) = setBool("stripShowSun", v)
+    /** Foreground app / Portal UI label shown in the strip. */
+    var stripShowContext: Boolean
+        get() = bool("stripShowContext", true); set(v) = setBool("stripShowContext", v)
+    /** Put Back / Home / Recents buttons on the right side of the strip. */
+    var stripShowNavButtons: Boolean
+        get() = bool("stripShowNavButtons", true); set(v) = setBool("stripShowNavButtons", v)
 
     // ---- banners ----------------------------------------------------------
     var bannerSeconds: Int
@@ -136,9 +151,9 @@ class Prefs(context: Context) {
     /** Thin scrolling text strip along the bottom edge. */
     var tickerEnabled: Boolean
         get() = bool("tickerEnabled", false); set(v) = setBool("tickerEnabled", v)
-    /** Source feed URL — an RSS/Atom XML feed or a JSON array/object. Empty = nothing to show. */
+    /** Source feed URL - an RSS/Atom XML feed or a JSON array/object. Empty = nothing to show. */
     var tickerUrl: String
-        get() = str("tickerUrl", ""); set(v) = setStr("tickerUrl", v.trim())
+        get() = str("tickerUrl", TICKER_SOURCES.first().second); set(v) = setStr("tickerUrl", v.trim())
     /** "bottom" or "top" edge of the screen. */
     var tickerPosition: String
         get() = str("tickerPosition", "bottom"); set(v) = setStr("tickerPosition", v)
@@ -202,6 +217,26 @@ class Prefs(context: Context) {
             "label" to "Icon + label",
             "color" to "Colour-coded",
             "dot" to "Dot indicator",
+        )
+
+        val NOW_PLAYING_VISUALIZERS = listOf(
+            "waves" to "Waves",
+            "rings" to "Rings",
+            "constellation" to "Constellation",
+            "prism" to "Prism",
+        )
+        val NOW_PLAYING_LAYOUTS = listOf(
+            "sidecar" to "Sidecar",
+            "centered" to "Centered",
+            "poster" to "Poster",
+        )
+
+        val TICKER_SOURCES = listOf(
+            "BBC News" to "https://feeds.bbci.co.uk/news/rss.xml",
+            "BBC World" to "https://feeds.bbci.co.uk/news/world/rss.xml",
+            "AP Top News" to "https://apnews.com/hub/apf-topnews?output=rss",
+            "NPR News Now" to "https://feeds.npr.org/510320/podcast.xml",
+            "NPR News Now 5 min" to "https://feeds.npr.org/500005/podcast.xml",
         )
 
         const val DEFAULT_ACCENT = 0xFFFF375F.toInt()
