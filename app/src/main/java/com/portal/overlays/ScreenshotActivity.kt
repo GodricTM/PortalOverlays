@@ -21,12 +21,20 @@ class ScreenshotActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == REQ && resultCode == RESULT_OK && data != null) {
-            val i = Intent(this, OverlayService::class.java)
-                .setAction(OverlayService.ACTION_PROJECTION_RESULT)
-                .putExtra(OverlayService.EXTRA_RESULT_CODE, resultCode)
-                .putExtra(OverlayService.EXTRA_RESULT_DATA, data)
-            startService(i)
+        if (requestCode == REQ) {
+            if (resultCode == RESULT_OK && data != null) {
+                val i = Intent(this, OverlayService::class.java)
+                    .setAction(OverlayService.ACTION_PROJECTION_RESULT)
+                    .putExtra(OverlayService.EXTRA_RESULT_CODE, resultCode)
+                    .putExtra(OverlayService.EXTRA_RESULT_DATA, data)
+                startService(i)
+            } else {
+                OverlayService.sendBanner(
+                    this,
+                    "Screenshot canceled",
+                    "Screen-capture permission was not granted."
+                )
+            }
         }
         finish()
         overridePendingTransition(0, 0)

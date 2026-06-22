@@ -1,9 +1,9 @@
 {
   "name": "Portal Overlays",
-  "description": "A floating HUD for sideloaded Meta Portal devices with Back, Home, Recents, widgets, notifications, and Now Playing.",
+  "description": "A floating HUD for sideloaded Meta Portal devices with widgets, notifications, ticker, status strip, floating navigation, and Now Playing.",
   "package": "com.portal.overlays",
   "category": "utility",
   "models": ["portal-plus", "portal-2019", "portal-mini", "portal-go", "portal-tv"],
-  "screenshots": ["screenshot.png"],
+  "screenshots": ["screenshots/11_home_overlays.png", "screenshots/10_now_playing_fullscreen.png", "screenshots/01_widgets.png"],
   "minSdk": 28
 }

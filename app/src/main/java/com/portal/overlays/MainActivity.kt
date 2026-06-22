@@ -97,14 +97,31 @@ private fun notifAccessEnabled(context: android.content.Context): Boolean {
 }
 
 private enum class Tab(val glyph: String, val label: String) {
-    WIDGETS("◵", "Widgets"), NOTIFY("✶", "Notifications"),
-    NAV("‹›", "Navigation"), LOOK("◐", "Appearance"), ABOUT("ⓘ", "About")
+    WIDGETS("W", "Widgets"),
+    NOW_PLAYING("NP", "Now Playing"),
+    STRIP("S", "Status strip"),
+    TICKER("T", "Ticker"),
+    SETTINGS("G", "Settings"),
+    NOTIFY("N", "Notifications"),
+    NAV("<>", "Navigation"),
+    LOOK("A", "Appearance"),
+    ABOUT("i", "About")
 }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent { Deck() }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Portal aggressively kills the background overlay service; START_STICKY doesn't reliably
+        // bring it back. Re-arm it whenever the app is reopened so the overlays are present without
+        // the user having to toggle "running" off and on.
+        if (Prefs(this).serviceEnabled) {
+            OverlayService.send(this, OverlayService.ACTION_REFRESH)
+        }
     }
 }
 
@@ -142,6 +159,8 @@ private fun Deck() {
     }
 
     fun refresh() { if (running) OverlayService.send(context, OverlayService.ACTION_REFRESH) }
+    fun syncWidgets() { if (running) OverlayService.send(context, OverlayService.ACTION_SYNC_WIDGETS) }
+    fun syncTicker() { if (running) OverlayService.send(context, OverlayService.ACTION_SYNC_TICKER) }
 
     Box(Modifier.fillMaxSize()) {
     Row(Modifier.fillMaxSize().background(BG)) {
@@ -166,7 +185,11 @@ private fun Deck() {
             Spacer(Modifier.height(14.dp))
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                 when (tab) {
-                    Tab.WIDGETS -> WidgetsTab(prefs, accent, ::refresh)
+                    Tab.WIDGETS -> WidgetsTab(prefs, accent, ::syncWidgets)
+                    Tab.NOW_PLAYING -> NowPlayingTab(prefs, accent, ::syncWidgets)
+                    Tab.STRIP -> StripTab(prefs, accent, ::refresh)
+                    Tab.TICKER -> TickerTab(prefs, accent, ::syncTicker)
+                    Tab.SETTINGS -> SettingsTab(prefs, accent, ::refresh)
                     Tab.NOTIFY -> NotifyTab(context, prefs, accent, ::refresh)
                     Tab.NAV -> NavTab(context, prefs, accent, accEnabled, ::refresh)
                     Tab.LOOK -> LookTab(prefs, accent, { accent = it }, ::refresh)
@@ -512,123 +535,141 @@ private fun Led(label: String, on: Boolean) {
 // ---- tabs -----------------------------------------------------------------
 
 @Composable
-private fun WidgetsTab(prefs: Prefs, accent: Color, refresh: () -> Unit) {
-    Section("🕐  Clock", "Time, optional seconds and date.") {
+private fun WidgetsTab(prefs: Prefs, accent: Color, syncWidgets: () -> Unit) {
+    Section("Clock", "Time, optional seconds and date.") {
         var on by remember { mutableStateOf(prefs.clockEnabled) }
-        Toggle("Show clock", on, accent) { on = it; prefs.clockEnabled = it; refresh() }
+        Toggle("Show clock", on, accent) { on = it; prefs.clockEnabled = it; syncWidgets() }
         if (on) {
             var h24 by remember { mutableStateOf(prefs.clock24h) }
             var secs by remember { mutableStateOf(prefs.clockSeconds) }
             var date by remember { mutableStateOf(prefs.clockShowDate) }
-            Toggle("24-hour time", h24, accent) { h24 = it; prefs.clock24h = it; refresh() }
-            Toggle("Show seconds", secs, accent) { secs = it; prefs.clockSeconds = it; refresh() }
-            Toggle("Show date", date, accent) { date = it; prefs.clockShowDate = it; refresh() }
+            Toggle("24-hour time", h24, accent) { h24 = it; prefs.clock24h = it; syncWidgets() }
+            Toggle("Show seconds", secs, accent) { secs = it; prefs.clockSeconds = it; syncWidgets() }
+            Toggle("Show date", date, accent) { date = it; prefs.clockShowDate = it; syncWidgets() }
         }
     }
-    Section("🌤️  Weather", "Live conditions from Open-Meteo (no API key).") {
+    Section("Weather", "Live conditions from Open-Meteo (no API key).") {
         var on by remember { mutableStateOf(prefs.weatherEnabled) }
-        var city by remember { mutableStateOf(prefs.weatherCity) }
         var f by remember { mutableStateOf(prefs.weatherFahrenheit) }
-        Toggle("Show weather", on, accent) { on = it; prefs.weatherEnabled = it; refresh() }
+        Toggle("Show weather", on, accent) { on = it; prefs.weatherEnabled = it; syncWidgets() }
         if (on) {
-            Field("City", city, "e.g. Bucharest") { city = it; prefs.weatherCity = it; refresh() }
-            Toggle("Use Fahrenheit", f, accent) { f = it; prefs.weatherFahrenheit = it; refresh() }
+            Toggle("Use Fahrenheit", f, accent) { f = it; prefs.weatherFahrenheit = it; syncWidgets() }
+            Text("Set the weather location in Settings.", color = MUTED, fontSize = 13.sp)
         }
     }
-    Section("🔋  Battery", "Charge level and charging state.") {
+    Section("Battery", "Charge level and charging state.") {
         var on by remember { mutableStateOf(prefs.batteryEnabled) }
-        Toggle("Show battery", on, accent) { on = it; prefs.batteryEnabled = it; refresh() }
+        Toggle("Show battery", on, accent) { on = it; prefs.batteryEnabled = it; syncWidgets() }
     }
-    Section("Now playing", "Album art, track details and transport controls from active media sessions.") {
-        val context = LocalContext.current
-        var on by remember { mutableStateOf(prefs.nowPlayingEnabled) }
-        if (!notifAccessEnabled(context)) Code(
-            "metavr adb shell cmd notification allow_listener com.portal.overlays/com.portal.overlays.NotifyListenerService"
-        )
-        Toggle("Show now playing", on, accent) { on = it; prefs.nowPlayingEnabled = it; refresh() }
-        if (on) {
-            var expanded by remember { mutableStateOf(prefs.nowPlayingStartExpanded) }
-            Toggle("Open full card when playing", expanded, accent) {
-                expanded = it; prefs.nowPlayingStartExpanded = it; refresh()
-            }
-            Text("Off = starts as a small bubble you tap to expand.", color = MUTED, fontSize = 13.sp)
-        }
-    }
-    Section("📝  Sticky note", "A pinned note that floats on top.") {
+    Section("Sticky note", "A pinned note that floats on top.") {
         var on by remember { mutableStateOf(prefs.noteEnabled) }
         var txt by remember { mutableStateOf(prefs.noteText) }
-        Toggle("Show note", on, accent) { on = it; prefs.noteEnabled = it; refresh() }
-        if (on) Field("Note text", txt, "Type your note") { txt = it; prefs.noteText = it; refresh() }
+        Toggle("Show note", on, accent) { on = it; prefs.noteEnabled = it; syncWidgets() }
+        if (on) Field("Note text", txt, "Type your note") { txt = it; prefs.noteText = it; syncWidgets() }
     }
     Hint("Drag any widget to reposition it. Positions are remembered.")
 }
 
 @Composable
-private fun NotifyTab(context: android.content.Context, prefs: Prefs, accent: Color, refresh: () -> Unit) {
-    Section("🔔  ntfy.sh topic", "Every message published to this topic pops a banner on top of any app.") {
-        var topic by remember { mutableStateOf(prefs.topic) }
-        Field("Topic", topic, "e.g. portal-denis-7f3a") { topic = it; prefs.topic = it; refresh() }
-        Spacer(Modifier.height(6.dp))
-        Code("curl -d \"Kitchen timer done\" ntfy.sh/${topic.ifBlank { "your-topic" }}")
-    }
-    Section("💬  Banners", "How incoming messages appear.") {
-        var secs by remember { mutableStateOf(prefs.bannerSeconds.toFloat()) }
-        var bottom by remember { mutableStateOf(prefs.bannerPosition == "bottom") }
-        Segmented(listOf("Top", "Bottom"), if (bottom) 1 else 0, accent) {
-            bottom = it == 1; prefs.bannerPosition = if (bottom) "bottom" else "top"; refresh()
-        }
-        SliderRow("Auto-dismiss", "${secs.toInt()}s", secs, 2f..30f, accent) {
-            secs = it; prefs.bannerSeconds = it.toInt(); refresh()
-        }
-        Primary("Test banner", accent) { OverlayService.send(context, OverlayService.ACTION_TEST_BANNER) }
-    }
-    Section("📲  Mirror app notifications", "Show other apps' notifications (WhatsApp, Messenger, email…) as banners.") {
-        var on by remember { mutableStateOf(prefs.mirrorNotifications) }
-        var skip by remember { mutableStateOf(prefs.mirrorSkipOngoing) }
+private fun NowPlayingTab(prefs: Prefs, accent: Color, syncWidgets: () -> Unit) {
+    Section("Music  Now playing", "Album art, track details and transport controls from active media sessions.") {
+        val context = LocalContext.current
         if (!notifAccessEnabled(context)) Code(
             "metavr adb shell cmd notification allow_listener com.portal.overlays/com.portal.overlays.NotifyListenerService"
         )
-        Toggle("Mirror notifications", on, accent) { on = it; prefs.mirrorNotifications = it }
-        if (on) Toggle("Skip ongoing (music, etc.)", skip, accent) { skip = it; prefs.mirrorSkipOngoing = it }
+        NowPlayingControls(prefs, accent, syncWidgets)
     }
-    Section("🚨  Alert popups", "Full-attention overlays with a Dismiss button.") {
-        var vib by remember { mutableStateOf(prefs.alertVibrate) }
-        var snd by remember { mutableStateOf(prefs.alertSound) }
-        Toggle("Vibrate on alert", vib, accent) { vib = it; prefs.alertVibrate = it }
-        Toggle("Play a sound on alert", snd, accent) { snd = it; prefs.alertSound = it }
-        if (snd) {
-            SoundRow(context, prefs, accent, "🔔 Doorbell sound", OverlayService.KIND_DOORBELL)
-            SoundRow(context, prefs, accent, "⏰ Timer sound", OverlayService.KIND_TIMER)
-            SoundRow(context, prefs, accent, "📌 Reminder sound", OverlayService.KIND_REMINDER)
+}
+
+@Composable
+private fun SettingsTab(prefs: Prefs, accent: Color, refresh: () -> Unit) {
+    Section("Weather location", "Set the city used by the Weather widget and the status strip.") {
+        var city by remember { mutableStateOf(prefs.weatherCity) }
+        Field("City", city, "e.g. New York", onCommit = { refresh() }) {
+            city = it; prefs.weatherCity = it
         }
-        Spacer(Modifier.height(6.dp))
-        Row {
-            Ghost("🔔 Doorbell", Modifier.weight(1f)) { OverlayService.send(context, OverlayService.ACTION_ALERT, OverlayService.KIND_DOORBELL) }
-            Spacer(Modifier.width(10.dp))
-            Ghost("⏰ Timer", Modifier.weight(1f)) { OverlayService.send(context, OverlayService.ACTION_ALERT, OverlayService.KIND_TIMER) }
-            Spacer(Modifier.width(10.dp))
-            Ghost("📌 Reminder", Modifier.weight(1f)) { OverlayService.send(context, OverlayService.ACTION_ALERT, OverlayService.KIND_REMINDER) }
-        }
+        Text("This feeds both Weather and any strip weather indicators.", color = MUTED, fontSize = 13.sp)
     }
-    Section("📰  Ticker", "A thin scrolling strip along the bottom. Real data only — paste an RSS/Atom or JSON feed URL.") {
+    Section("Weather units", "Choose the unit system used for Weather.") {
+        var f by remember { mutableStateOf(prefs.weatherFahrenheit) }
+        Toggle("Use Fahrenheit", f, accent) { f = it; prefs.weatherFahrenheit = it; refresh() }
+    }
+}
+
+@Composable
+private fun NowPlayingControls(prefs: Prefs, accent: Color, refresh: () -> Unit) {
+    var on by remember { mutableStateOf(prefs.nowPlayingEnabled) }
+    Toggle("Show now playing", on, accent) { on = it; prefs.nowPlayingEnabled = it; refresh() }
+    if (on) {
+        var expanded by remember { mutableStateOf(prefs.nowPlayingStartExpanded) }
+        var style by remember { mutableStateOf(prefs.nowPlayingVisualizerStyle) }
+        var layout by remember { mutableStateOf(prefs.nowPlayingLayoutStyle) }
+        var progress by remember { mutableStateOf(prefs.nowPlayingShowProgress) }
+        Toggle("Open full card when playing", expanded, accent) {
+            expanded = it; prefs.nowPlayingStartExpanded = it; refresh()
+        }
+        Toggle("Show progress & track length", progress, accent) {
+            progress = it; prefs.nowPlayingShowProgress = it; refresh()
+        }
+        val visualizers = Prefs.NOW_PLAYING_VISUALIZERS
+        Segmented(
+            visualizers.map { it.second },
+            visualizers.indexOfFirst { it.first == style }.coerceAtLeast(0),
+            accent
+        ) {
+            style = visualizers[it].first
+            prefs.nowPlayingVisualizerStyle = style
+            refresh()
+        }
+        val layouts = Prefs.NOW_PLAYING_LAYOUTS
+        Segmented(
+            layouts.map { it.second },
+            layouts.indexOfFirst { it.first == layout }.coerceAtLeast(0),
+            accent
+        ) {
+            layout = layouts[it].first
+            prefs.nowPlayingLayoutStyle = layout
+            refresh()
+        }
+        Text("Off = starts as a small bubble you tap to expand.", color = MUTED, fontSize = 13.sp)
+    }
+}
+
+@Composable
+private fun TickerTab(prefs: Prefs, accent: Color, syncTicker: () -> Unit) {
+    Section("Ticker", "A thin scrolling strip for live RSS, Atom or JSON headlines.") {
         var on by remember { mutableStateOf(prefs.tickerEnabled) }
         var url by remember { mutableStateOf(prefs.tickerUrl) }
         var speed by remember { mutableStateOf(prefs.tickerSpeed.toFloat()) }
         var top by remember { mutableStateOf(prefs.tickerPosition == "top") }
-        Toggle("Show ticker", on, accent) { on = it; prefs.tickerEnabled = it; refresh() }
+        Toggle("Show ticker", on, accent) { on = it; prefs.tickerEnabled = it; syncTicker() }
         if (on) {
             Segmented(listOf("Bottom", "Top"), if (top) 1 else 0, accent) {
-                top = it == 1; prefs.tickerPosition = if (top) "top" else "bottom"; refresh()
+                top = it == 1; prefs.tickerPosition = if (top) "top" else "bottom"; syncTicker()
             }
-            Field("Feed URL (RSS/Atom or JSON)", url, "https://… .xml or .json") { url = it; prefs.tickerUrl = it; refresh() }
-            SliderRow("Scroll speed", "${speed.toInt()} px/s", speed, 20f..200f, accent) {
-                speed = it; prefs.tickerSpeed = it.toInt(); refresh()
+        }
+        Field("Feed URL (RSS/Atom or JSON)", url, "https://... .xml or .json") {
+            url = it; prefs.tickerUrl = it; syncTicker()
+        }
+        Text("Quick sources", color = MUTED, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+        Prefs.TICKER_SOURCES.forEach { (label, source) ->
+            Ghost("Use $label", Modifier.fillMaxWidth()) {
+                on = true
+                url = source
+                prefs.tickerEnabled = true
+                prefs.tickerUrl = source
+                syncTicker()
             }
-            if (url.isBlank()) Text("Nothing scrolls until you add a feed — no placeholder headlines.",
-                color = MUTED, fontSize = 13.sp)
+        }
+        SliderRow("Scroll speed", "${speed.toInt()} px/s", speed, 20f..200f, accent) {
+            speed = it; prefs.tickerSpeed = it.toInt(); syncTicker()
         }
     }
-    Section("📊  Status strip", "A thin live-info bar along one edge.") {
+}
+
+@Composable
+private fun StripTab(prefs: Prefs, accent: Color, refresh: () -> Unit) {
+    Section("Status strip", "A thin live-info bar along one edge.") {
         var on by remember { mutableStateOf(prefs.stripEnabled) }
         var top by remember { mutableStateOf(prefs.stripPosition == "top") }
         Toggle("Show strip", on, accent) { on = it; prefs.stripEnabled = it; refresh() }
@@ -648,8 +689,12 @@ private fun NotifyTab(context: android.content.Context, prefs: Prefs, accent: Co
             var rain by remember { mutableStateOf(prefs.stripShowRain) }
             var sun by remember { mutableStateOf(prefs.stripShowSun) }
             var n by remember { mutableStateOf(prefs.stripShowNtfy) }
+            var ctx by remember { mutableStateOf(prefs.stripShowContext) }
+            var nav by remember { mutableStateOf(prefs.stripShowNavButtons) }
             Toggle("Clock", c, accent) { c = it; prefs.stripShowClock = it; refresh() }
             Toggle("Date", d, accent) { d = it; prefs.stripShowDate = it; refresh() }
+            Toggle("Foreground app / Portal UI", ctx, accent) { ctx = it; prefs.stripShowContext = it; refresh() }
+            Toggle("Back / Home / Recents on strip", nav, accent) { nav = it; prefs.stripShowNavButtons = it; refresh() }
             Toggle("Weather", w, accent) { w = it; prefs.stripShowWeather = it; refresh() }
             Toggle("Battery", b, accent) { b = it; prefs.stripShowBattery = it; refresh() }
             Toggle("Network speed", net, accent) { net = it; prefs.stripShowNetwork = it; refresh() }
@@ -659,10 +704,62 @@ private fun NotifyTab(context: android.content.Context, prefs: Prefs, accent: Co
             Toggle("Week number", week, accent) { week = it; prefs.stripShowWeek = it; refresh() }
             Toggle("Rain in the next hour", rain, accent) { rain = it; prefs.stripShowRain = it; refresh() }
             Toggle("Time to sunset / sunrise", sun, accent) { sun = it; prefs.stripShowSun = it; refresh() }
-            if ((rain || sun) && prefs.weatherCity.isBlank())
-                Text("Set a Weather city in the Widgets tab — rain and sun times need a location.",
+            if ((rain || sun) && prefs.weatherCity.isBlank()) {
+                Text("Set a Weather city in the Widgets tab - rain and sun times need a location.",
                     color = MUTED, fontSize = 13.sp)
+            }
             Toggle("ntfy status", n, accent) { n = it; prefs.stripShowNtfy = it; refresh() }
+        }
+    }
+}
+
+@Composable
+private fun NotifyTab(context: android.content.Context, prefs: Prefs, accent: Color, refresh: () -> Unit) {
+    Section("ntfy.sh topic", "Every message published to this topic pops a banner on top of any app.") {
+        var topic by remember { mutableStateOf(prefs.topic) }
+        Field("Topic", topic, "e.g. portal-denis-7f3a", onCommit = { refresh() }) {
+            topic = it; prefs.topic = it
+        }
+        Spacer(Modifier.height(6.dp))
+        Code("curl -d \"Kitchen timer done\" ntfy.sh/${topic.ifBlank { "your-topic" }}")
+    }
+    Section("Banners", "How incoming messages appear.") {
+        var secs by remember { mutableStateOf(prefs.bannerSeconds.toFloat()) }
+        var bottom by remember { mutableStateOf(prefs.bannerPosition == "bottom") }
+        Segmented(listOf("Top", "Bottom"), if (bottom) 1 else 0, accent) {
+            bottom = it == 1; prefs.bannerPosition = if (bottom) "bottom" else "top"; refresh()
+        }
+        SliderRow("Auto-dismiss", "${secs.toInt()}s", secs, 2f..30f, accent) {
+            secs = it; prefs.bannerSeconds = it.toInt(); refresh()
+        }
+        Primary("Test banner", accent) { OverlayService.send(context, OverlayService.ACTION_TEST_BANNER) }
+    }
+    Section("Mirror app notifications", "Show other apps' notifications (WhatsApp, Messenger, email...) as banners.") {
+        var on by remember { mutableStateOf(prefs.mirrorNotifications) }
+        var skip by remember { mutableStateOf(prefs.mirrorSkipOngoing) }
+        if (!notifAccessEnabled(context)) Code(
+            "metavr adb shell cmd notification allow_listener com.portal.overlays/com.portal.overlays.NotifyListenerService"
+        )
+        Toggle("Mirror notifications", on, accent) { on = it; prefs.mirrorNotifications = it }
+        if (on) Toggle("Skip ongoing (music, etc.)", skip, accent) { skip = it; prefs.mirrorSkipOngoing = it }
+    }
+    Section("Alert popups", "Full-attention overlays with a Dismiss button.") {
+        var vib by remember { mutableStateOf(prefs.alertVibrate) }
+        var snd by remember { mutableStateOf(prefs.alertSound) }
+        Toggle("Vibrate on alert", vib, accent) { vib = it; prefs.alertVibrate = it }
+        Toggle("Play a sound on alert", snd, accent) { snd = it; prefs.alertSound = it }
+        if (snd) {
+            SoundRow(context, prefs, accent, "Doorbell sound", OverlayService.KIND_DOORBELL)
+            SoundRow(context, prefs, accent, "Timer sound", OverlayService.KIND_TIMER)
+            SoundRow(context, prefs, accent, "Reminder sound", OverlayService.KIND_REMINDER)
+        }
+        Spacer(Modifier.height(6.dp))
+        Row {
+            Ghost("Doorbell", Modifier.weight(1f)) { OverlayService.send(context, OverlayService.ACTION_ALERT, OverlayService.KIND_DOORBELL) }
+            Spacer(Modifier.width(10.dp))
+            Ghost("Timer", Modifier.weight(1f)) { OverlayService.send(context, OverlayService.ACTION_ALERT, OverlayService.KIND_TIMER) }
+            Spacer(Modifier.width(10.dp))
+            Ghost("Reminder", Modifier.weight(1f)) { OverlayService.send(context, OverlayService.ACTION_ALERT, OverlayService.KIND_REMINDER) }
         }
     }
 }
@@ -786,6 +883,8 @@ private fun AboutTab(accent: Color, onCheck: () -> Unit = {}) {
         Code("metavr adb shell cmd notification allow_listener com.portal.overlays/com.portal.overlays.NotifyListenerService")
     }
     Section("Credits", "") {
+        Text("Made by GodricTM", color = TEXT, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(4.dp))
         Text("Open-Meteo for weather · ntfy.sh for push · made for the Portal sideloading community.",
             color = MUTED, fontSize = 14.sp)
     }
@@ -815,21 +914,33 @@ private fun Toggle(label: String, checked: Boolean, accent: Color, onChange: (Bo
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-private fun Field(label: String, value: String, placeholder: String, onChange: (String) -> Unit) {
+private fun Field(
+    label: String,
+    value: String,
+    placeholder: String,
+    onCommit: (() -> Unit)? = null,
+    onChange: (String) -> Unit
+) {
     // On Portal's older Android the soft keyboard often won't auto-raise inside a scrolled form, so we
     // request it explicitly when the field gains focus — via Compose's controller AND the platform
     // InputMethodManager (posted, so the input connection is established first), which is what actually
     // sticks on Portal.
     val keyboard = LocalSoftwareKeyboardController.current
     val view = androidx.compose.ui.platform.LocalView.current
+    var wasFocused by remember { mutableStateOf(false) }
     OutlinedTextField(
         value = value, onValueChange = onChange, singleLine = true,
         label = { Text(label, color = MUTED) },
         placeholder = { Text(placeholder, color = FAINT) },
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-        keyboardActions = KeyboardActions(onDone = { keyboard?.hide() }),
+        keyboardActions = KeyboardActions(onDone = {
+            keyboard?.hide()
+            onCommit?.invoke()
+        }),
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
             .onFocusChanged { state ->
+                if (wasFocused && !state.isFocused) onCommit?.invoke()
+                wasFocused = state.isFocused
                 if (state.isFocused) {
                     keyboard?.show()
                     view.post {
@@ -977,3 +1088,4 @@ private fun switchColors(accent: Color) = SwitchDefaults.colors(
     checkedThumbColor = Color.White, checkedTrackColor = accent, checkedBorderColor = accent,
     uncheckedThumbColor = MUTED, uncheckedTrackColor = PANEL2, uncheckedBorderColor = LINE
 )
+

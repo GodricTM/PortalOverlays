@@ -2,6 +2,8 @@ package com.portal.overlays
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.os.Handler
+import android.os.Looper
 import android.graphics.Path
 import android.view.accessibility.AccessibilityEvent
 
@@ -14,10 +16,19 @@ import android.view.accessibility.AccessibilityEvent
  *   metavr adb shell settings put secure accessibility_enabled 1
  */
 class NavAccessibilityService : AccessibilityService() {
+    private val main = Handler(Looper.getMainLooper())
+    private val refresh = Runnable { OverlayService.send(applicationContext, OverlayService.ACTION_CONTEXT_CHANGED) }
+
     override fun onServiceConnected() { instance = this }
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        val changed = UiContextState.update(event, rootInActiveWindow?.packageName?.toString())
+        if (!changed) return
+        main.removeCallbacks(refresh)
+        main.postDelayed(refresh, 120)
+    }
     override fun onInterrupt() {}
     override fun onDestroy() {
+        main.removeCallbacks(refresh)
         if (instance === this) instance = null
         super.onDestroy()
     }

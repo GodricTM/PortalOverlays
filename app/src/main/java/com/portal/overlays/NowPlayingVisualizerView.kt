@@ -13,11 +13,19 @@ import android.os.SystemClock
 import android.view.View
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.sin
 
 class NowPlayingVisualizerView(context: Context) : View(context) {
     var accentColor: Int = 0xFF4C8DFF.toInt()
+        set(value) {
+            field = value
+            invalidate()
+        }
+
+    var style: String = "waves"
         set(value) {
             field = value
             invalidate()
@@ -40,32 +48,155 @@ class NowPlayingVisualizerView(context: Context) : View(context) {
         if (w <= 0f || h <= 0f) return
 
         val t = SystemClock.uptimeMillis() / 1000f
-        drawBackdrop(canvas, w, h, t)
-        drawWaves(canvas, w, h, t)
-        drawBars(canvas, w, h, t)
+        when (style) {
+            "rings" -> drawRingsScene(canvas, w, h, t)
+            "constellation" -> drawConstellationScene(canvas, w, h, t)
+            "prism" -> drawPrismScene(canvas, w, h, t)
+            else -> drawWavesScene(canvas, w, h, t)
+        }
 
         if (playing) postInvalidateOnAnimation()
     }
 
-    private fun drawBackdrop(canvas: Canvas, w: Float, h: Float, t: Float) {
+    private fun drawWavesScene(canvas: Canvas, w: Float, h: Float, t: Float) {
+        drawBaseBackdrop(canvas, w, h, t, 0xFF101620.toInt(), 0xFF07080B.toInt())
+        drawAccentGlow(canvas, w * 0.72f, h * 0.42f, max(w, h) * 0.62f, 72, t)
+        drawWaves(canvas, w, h, t)
+        drawBars(canvas, w, h, t)
+    }
+
+    private fun drawRingsScene(canvas: Canvas, w: Float, h: Float, t: Float) {
+        drawBaseBackdrop(canvas, w, h, t, 0xFF0A0E14.toInt(), 0xFF07080B.toInt())
+        val cx = w * 0.5f
+        val cy = h * 0.5f
+        drawAccentGlow(canvas, cx, cy, max(w, h) * 0.56f, 86, t)
+
+        paint.style = Paint.Style.STROKE
+        for (i in 0..5) {
+            val pulse = if (playing) 1f + 0.06f * sin(t * (1.2f + i * 0.18f) + i) else 0.96f
+            val radius = min(w, h) * (0.12f + i * 0.065f) * pulse
+            paint.strokeWidth = 2.5f + i * 1.4f
+            paint.color = alpha(accentColor, 108 - i * 12)
+            canvas.drawCircle(cx, cy, radius, paint)
+        }
+
+        for (i in 0 until 48) {
+            val angle = (i / 48f) * 2f * PI.toFloat() + t * 0.35f
+            val inner = min(w, h) * 0.17f
+            val outer = inner + min(w, h) * (0.04f + 0.085f * abs(sin(t * 1.8f + i * 0.33f))) * if (playing) 1f else 0.35f
+            val x1 = cx + cos(angle) * inner
+            val y1 = cy + sin(angle) * inner
+            val x2 = cx + cos(angle) * outer
+            val y2 = cy + sin(angle) * outer
+            paint.strokeWidth = dpf(2f)
+            paint.color = alpha(Color.WHITE, 130)
+            canvas.drawLine(x1, y1, x2, y2, paint)
+        }
+        paint.style = Paint.Style.FILL
+    }
+
+    private fun drawConstellationScene(canvas: Canvas, w: Float, h: Float, t: Float) {
+        paint.shader = LinearGradient(
+            0f, 0f, 0f, h,
+            intArrayOf(0xFF05070A.toInt(), 0xFF0B1220.toInt(), 0xFF040507.toInt()),
+            floatArrayOf(0f, 0.58f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawRect(0f, 0f, w, h, paint)
+        paint.shader = null
+        drawAccentGlow(canvas, w * 0.32f, h * 0.34f, max(w, h) * 0.48f, 82, t)
+
+        val nodes = 18
+        val points = ArrayList<Pair<Float, Float>>(nodes)
+        for (i in 0 until nodes) {
+            val nx = w * (0.14f + (i % 6) * 0.14f) + w * 0.04f * sin(t * 0.42f + i)
+            val ny = h * (0.22f + (i / 6) * 0.18f) + h * 0.05f * cos(t * 0.36f + i * 0.7f)
+            points += nx to ny
+        }
+
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = dpf(1.4f)
+        for (i in 0 until points.size) {
+            val (x1, y1) = points[i]
+            for (j in i + 1 until min(i + 4, points.size)) {
+                val (x2, y2) = points[j]
+                val alpha = if (playing) 62 else 28
+                paint.color = alpha(accentColor, alpha)
+                canvas.drawLine(x1, y1, x2, y2, paint)
+            }
+        }
+
+        paint.style = Paint.Style.FILL
+        points.forEachIndexed { i, (x, y) ->
+            val r = dpf(3f) + dpf(3f) * abs(sin(t * 1.6f + i * 0.55f)) * if (playing) 1f else 0.4f
+            paint.color = alpha(Color.WHITE, 190)
+            canvas.drawCircle(x, y, r, paint)
+            paint.color = alpha(accentColor, 110)
+            canvas.drawCircle(x, y, r * 2.6f, paint)
+        }
+
+        drawBars(canvas, w, h, t)
+    }
+
+    private fun drawPrismScene(canvas: Canvas, w: Float, h: Float, t: Float) {
         paint.shader = LinearGradient(
             0f, 0f, w, h,
-            intArrayOf(0xFF080A0D.toInt(), 0xFF101620.toInt(), 0xFF07080B.toInt()),
+            intArrayOf(0xFF090B10.toInt(), 0xFF15111A.toInt(), 0xFF07080B.toInt()),
+            floatArrayOf(0f, 0.52f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawRect(0f, 0f, w, h, paint)
+        paint.shader = null
+        drawAccentGlow(canvas, w * 0.68f, h * 0.30f, max(w, h) * 0.54f, 78, t)
+
+        paint.style = Paint.Style.FILL
+        for (i in 0 until 9) {
+            val size = min(w, h) * (0.08f + i * 0.032f)
+            val cx = w * (0.22f + (i % 3) * 0.24f) + w * 0.03f * sin(t * 0.42f + i)
+            val cy = h * (0.28f + (i / 3) * 0.16f) + h * 0.035f * cos(t * 0.36f + i)
+            val tilt = t * 0.28f + i * 0.35f
+            path.reset()
+            for (corner in 0 until 4) {
+                val angle = tilt + corner * (PI.toFloat() / 2f)
+                val px = cx + cos(angle) * size
+                val py = cy + sin(angle) * size * 0.66f
+                if (corner == 0) path.moveTo(px, py) else path.lineTo(px, py)
+            }
+            path.close()
+            paint.color = alpha(accentColor, 28 + i * 10)
+            canvas.drawPath(path, paint)
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = dpf(1.8f)
+            paint.color = alpha(Color.WHITE, 44 + i * 7)
+            canvas.drawPath(path, paint)
+            paint.style = Paint.Style.FILL
+        }
+
+        drawWaves(canvas, w, h, t)
+    }
+
+    private fun drawBaseBackdrop(canvas: Canvas, w: Float, h: Float, t: Float, midColor: Int, endColor: Int) {
+        paint.shader = LinearGradient(
+            0f, 0f, w, h,
+            intArrayOf(0xFF080A0D.toInt(), midColor, endColor),
             floatArrayOf(0f, 0.54f, 1f),
             Shader.TileMode.CLAMP
         )
         canvas.drawRect(0f, 0f, w, h, paint)
+        paint.shader = null
+    }
 
+    private fun drawAccentGlow(canvas: Canvas, cx: Float, cy: Float, radius: Float, alphaBase: Int, t: Float) {
         val pulse = if (playing) 0.72f + 0.18f * sin(t * 1.4f) else 0.56f
         paint.shader = RadialGradient(
-            w * (0.72f + 0.035f * sin(t * 0.33f)),
-            h * (0.42f + 0.045f * sin(t * 0.27f + 2f)),
-            max(w, h) * 0.62f,
-            alpha(accentColor, (72 * pulse).toInt()),
+            cx + radius * 0.04f * sin(t * 0.33f),
+            cy + radius * 0.05f * sin(t * 0.27f + 2f),
+            radius,
+            alpha(accentColor, (alphaBase * pulse).toInt()),
             Color.TRANSPARENT,
             Shader.TileMode.CLAMP
         )
-        canvas.drawCircle(w * 0.72f, h * 0.42f, max(w, h) * 0.62f, paint)
+        canvas.drawCircle(cx, cy, radius, paint)
         paint.shader = null
     }
 
@@ -84,7 +215,6 @@ class NowPlayingVisualizerView(context: Context) : View(context) {
                 path.lineTo(x, y)
                 x += 10f
             }
-            paint.shader = null
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = 2.5f + layer * 1.1f
             paint.color = alpha(accentColor, 72 - layer * 17)
@@ -123,6 +253,8 @@ class NowPlayingVisualizerView(context: Context) : View(context) {
         }
         paint.shader = null
     }
+
+    private fun dpf(value: Float): Float = value * resources.displayMetrics.density
 
     private fun alpha(color: Int, a: Int): Int =
         Color.argb(a.coerceIn(0, 255), Color.red(color), Color.green(color), Color.blue(color))

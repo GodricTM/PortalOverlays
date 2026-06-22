@@ -78,6 +78,13 @@ if (-not $AccessibilityOnly) {
     Step "Granting draw-over-apps" { & adb -s $serial shell appops set $Package SYSTEM_ALERT_WINDOW allow }
     Step "Allowing notification listener" { & adb -s $serial shell cmd notification allow_listener $NotificationListener }
     Step "Allowing in-app installs (updater)" { & adb -s $serial shell appops set $Package REQUEST_INSTALL_PACKAGES allow }
+    # Screenshots: pre-Android 10 Portals write to the public gallery via WRITE_EXTERNAL_STORAGE.
+    # On Android 10+ this permission is capped out (maxSdkVersion=28) so the grant is a no-op there;
+    # swallow its exit code so newer devices don't report a false failure.
+    Step "Granting storage (screenshots, pre-Android 10)" {
+        & adb -s $serial shell pm grant $Package android.permission.WRITE_EXTERNAL_STORAGE 2>$null
+        $global:LASTEXITCODE = 0
+    }
 
     if (-not $NoDaemon) {
         $installd = Join-Path $PSScriptRoot "installd.sh"

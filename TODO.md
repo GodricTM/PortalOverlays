@@ -1,85 +1,53 @@
-# Portal Overlays — TODO
+# Portal Overlays - TODO
 
-Working tracker for releases and feature work. Newest at top.
+Working tracker for release prep and follow-up work. Newest items at top.
 
-## Status snapshot (2026-06-18)
-- **v1.1** — shipped ✅ (Portal TV banner, crash fix, permission onboarding)
-- **v1.2** — shipped ✅ (in-app updater: silent daemon + one-tap fallback)
-- **v1.3** — shipped ✅ (status-strip cluster + lock button)
-- **v1.4** — shipped ✅ (nav styles, ticker, app-switcher fallback, weather extras, custom sounds,
-  keyboard/ghost-trail fixes)
+## Current status snapshot
+- **Widgets page** - core widgets stay on one page; Now Playing lives on its own dedicated tab.
+- **Now Playing page** - music controls have a dedicated tab for faster access and clearer separation.
+- **Settings page** - weather location and weather units live outside the Weather widget now.
+- **Startup defaults** - Clock starts off; Now Playing and the bottom status strip start on.
+- **Status strip** - foreground context, weather, network speed, Wi-Fi, week, rain, sunrise/sunset, and optional nav buttons are in place by default.
+- **Ticker** - live source presets are available, and the ticker now respects the chosen edge placement.
+- **Widget refreshes** - simple on/off changes now use narrower update paths instead of rebuilding every overlay.
+- **Strip nav buttons** - the optional Back / Home / Recents buttons have been widened for better touch use.
+- **Navigation** - floating Back / Home / Recents and the strip-mounted nav option are already implemented.
+- **Notifications** - ntfy banners and mirrored notifications remain available.
 
----
+## Shipped work
+- [x] Fullscreen Now Playing progress bar + elapsed/track length (toggle on the Now Playing page)
+- [x] Album name and source-app logo on the fullscreen Now Playing card
+- [x] Screen-off (lock display) button next to the Now Playing close control
+- [x] Status strip hide / restore handle (takes the ticker with it)
+- [x] Overlays auto re-arm when the app is reopened (no more toggle off/on)
+- [x] Screenshot button fix — no crash, saves to the gallery via MediaStore on Android 9
+- [x] `enable_portal_permissions` grants WRITE_EXTERNAL_STORAGE for screenshots
+- [x] Separate control tabs for Widgets, Now Playing, Status strip, Ticker, Settings, Notifications, Navigation, Appearance, and About
+- [x] Status strip foreground context label
+- [x] Optional Back / Home / Recents buttons inside the bottom strip
+- [x] Ticker quick sources and live feed URL entry
+- [x] Ticker top-edge and bottom-edge placement rules
+- [x] Ticker-only updates for source / position / speed changes
+- [x] Multiple full-screen Now Playing visualizers
+- [x] Multiple full-card Now Playing layouts
+- [x] Dedicated Now Playing tab alongside Widgets
+- [x] Dedicated Settings tab for weather location and units
+- [x] Wider strip-mounted Back / Home / Recents buttons
+- [x] More reliable dragging for the mini Now Playing widget
+- [x] Centered and Poster layouts made visually distinct
+- [x] Status strip defaults seeded to the requested bottom-edge setup
+- [x] Startup defaults flipped so Clock is off and Now Playing is on
 
-## v1.4 — nav styles + behaviours  (released 2026-06-18)
+## Next up
+- [ ] Shuffle / repeat on Now Playing — removed for now: the framework `setShuffleMode`/`setRepeatMode`
+      are API 29+, and Spotify exposes no MediaSession custom actions, so there's no public-API way to
+      control them on the Portal's Android 9. Revisit via forwarding the media notification's action
+      PendingIntents if a reliable mapping is found.
+- [ ] Add more ticker feed presets if we find stable official sources worth keeping
+- [ ] Keep tightening overlay spacing and placement for Portal's built-in UI shells
+- [ ] Continue visual QA on Portal hardware after each control-surface change
 
-versionCode 5 / versionName 1.4. Signed APK: `PortalOverlays-v1.4-release.apk`.
-
-Built:
-- [x] 8 nav button styles + press-state dimming (Prefs.navStyle; live picker in Nav tab)
-- [x] Recents app-switcher fallback for devices with no Overview (Portal Mini)
-- [x] Ticker overlay — RSS/Atom or JSON feed URL, self-animated marquee (TickerClient)
-- [x] Week number, rain-in-next-hour, sunset/sunrise countdown (Open-Meteo minutely_15 + daily)
-- [x] Custom per-kind alert sounds via system ringtone picker; now-playing start compact/expanded
-- [x] Keyboard fix — windowSoftInputMode + explicit IME show on field focus
-
-Release checks:
-- [x] `version.json` bumped to code 5 / 1.4
-- [x] `gh release create v1.4` with asset `PortalOverlays-v1.4-release.apk`
-- [x] Raw `version.json` + apkUrl resolve (HTTP 200)
-- [ ] **On-device test on Portal Mini** — Recents → app switcher works; each of the 8 nav styles
-      renders + presses; ticker scrolls real feed; rain/sun/week show; ringtone picker opens;
-      weather-city keyboard appears
-
-### Open question carried from before
-- Default nav style chosen = **Pill segments** ("safest all-rounder"); change in-app if preferred.
-
----
-
-## v1.3 — status cluster + lock  (shipped 2026-06-18)
-
-Code complete, compiles (debug + release), installed on the Portal+ for testing.
-
-Built:
-- [x] Streaming indicator — animated dot while audio/video plays (reads media session)
-- [x] VPN status dot — green/red, generic "tunnel active" (not WireGuard-specific)
-- [x] Wi-Fi signal bars — reflect real RSSI; tap shows device IP
-- [x] Subtle separator lines between each strip element
-- [x] Lock button — nav-cluster button, locks display via accessibility (no device admin)
-- [x] versionCode 4 / versionName 1.3; CHANGELOG entry
-
-Release:
-- [x] Rebuild release APK at versionCode 4 (stamped 4, signed)
-- [x] Update `version.json` → code 4 / 1.3, commit, push
-- [x] `gh release create v1.3` with asset `PortalOverlays-v1.3-release.apk`
-- [x] Verify raw `version.json` + apkUrl resolve (HTTP 200)
-- [ ] **On-device visual verification** (deferred; build is installed on the Portal+)
-      — confirm strip renders with separators + new dots/bars, Wi-Fi tap shows IP, lock button locks
-
----
-
-## v1.5 — ideas  (planned)
-
-- [ ] **Ticker via ntfy topic** as an alternative source (currently RSS/Atom or JSON URL only)
-- [ ] **Custom sounds per ntfy source/kind** (beyond the doorbell/timer/reminder alert kinds)
-- [ ] **Per-app split-screen pairing** if Portal multi-window proves workable on any model
-
----
-
-## Decisions already made
-- Ticker source = user RSS/Atom or JSON URL; nothing shows until set (no-fake-data). ntfy-topic
-  source deferred to v1.5.
-- Custom sounds = system ringtone picker per alert kind (no bundled `res/raw` assets to license).
-- Default nav style = Pill segments.
-- Recents on no-Overview Portals (Mini) = fall back to an installed-apps switcher grid.
-- VPN dot = generic "VPN active" (Android won't reveal which app owns the tunnel without root)
-
-## Infra / gotchas
-- Releases cut from `main`; raw `main/version.json` drives the in-app updater — the release
-  asset filename MUST match `apkUrl` (e.g. `PortalOverlays-vX.Y-release.apk`)
-- Silent-install daemon (`installd.sh`) is started by `enable_portal_permissions`; dies on reboot
-  (re-run the helper). App falls back to one-tap PackageInstaller meanwhile.
-- `*.sh` pinned to LF via `.gitattributes` (CRLF breaks `/system/bin/sh` on the device)
-- Windows ADB kept dropping the Portal after reboot → patched driver INF in
-  `Portal+/portal_usb_driver/` adds `VID_2EC6&PID_1800`; install into the driver store so it sticks
-- Keystore / `release-signing.properties` / `local.properties` stay gitignored
+## Notes
+- Ticker defaults to BBC News so a fresh install shows live data immediately.
+- Bottom ticker placement is intentionally lifted above the bottom status strip when that strip is enabled.
+- The strip-mounted nav buttons remain optional and can be left off if the floating nav cluster is preferred.

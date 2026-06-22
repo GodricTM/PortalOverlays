@@ -2,29 +2,57 @@
 
 A floating HUD for sideloaded Meta Portal devices. Draws widgets, banners, mirrored notifications, a live status strip, floating navigation, and a fullscreen Now Playing view on top of any app — no Google Play Services.
 
-![Overlay on Immortal launcher](screenshots/06_immortal_home_with_overlays.png)
+![Overlays on the Immortal launcher](screenshots/11_home_overlays.png)
 
 ## Features
 
 - **Push banners** from ntfy.sh (no Firebase / no FCM)
 - **Mirrored notifications** from other apps as overlay banners
-- **Draggable widgets**: clock, weather, battery, sticky note, Now Playing mini
-- **Ticker overlay** from a real RSS, Atom, or JSON feed, shown along the top or bottom edge
-- **Status strip** with time, date, weather, battery, ntfy state, live network speed, ISO week,
-  rain-in-next-hour, sunrise/sunset countdown, streaming, VPN, and Wi-Fi indicators
+- **Draggable widgets**: clock, weather, battery, sticky note
+- **Ticker overlay** from a real RSS, Atom, or JSON feed, shown along the top or bottom edge, with built-in live source presets (BBC, AP, NPR)
+- **Status strip** with time, date, foreground app / Portal UI label, weather, battery, ntfy state,
+  live network speed, ISO week, rain-in-next-hour, sunrise/sunset countdown, streaming, VPN, and
+  Wi-Fi indicators, plus optional wider Back / Home / Recents buttons on the right
 - **Floating nav cluster**: Back, Home, Recents, Control Center swipe, Screenshot, Lock
 - **Portal Mini app switcher fallback** when the Portal system has no Recents/Overview UI
 - **Eight nav styles**: Pill segments, Underline indicator, Ghost pill, Floating squares, Dark glass,
   Icon + label, Colour-coded, and Dot indicator
-- **Fullscreen Now Playing** with artwork, transport controls, animated visualizer, and a compact/expanded
-  start preference
-- **Customisation**: accent colour, opacity, corner radius, text scale, strip position, alert sounds
+- **Fullscreen Now Playing** with multiple background visualizers, multiple full-card layouts,
+  transport controls, and a compact/expanded start preference — now also showing a **live progress
+  bar with elapsed time and track length**, the **album name**, the **source-app logo** (e.g.
+  Spotify), and a **screen-off button** next to the close control
+- **Status strip hide / restore**: a small chevron collapses the strip (and the ticker that rides
+  with it) to a tiny handle so you can read what's underneath, then tap the handle to bring it back
+- **Overlays auto re-arm**: reopening the app restores the overlays automatically — no toggling
+  "running" off and on after the Portal kills the background service
+- **Screenshot button** that saves to the gallery (Pictures/Screenshots) via MediaStore, with an
+  app-storage fallback, instead of crashing on the Portal's Android 9
+- **Dedicated control tabs** for Widgets, Now Playing, Status strip, Ticker, Settings, Notifications, Navigation, Appearance, and About
+- **Settings page** for shared app-wide options like weather location and weather units, so they can be changed without enabling the Weather widget first
+- **Status strip defaults** that start with the bottom strip enabled and the requested live items on:
+  clock, date, foreground app, weather, network speed, Wi-Fi, week number, rain, sunset / sunrise,
+  and optional strip-mounted Back / Home / Recents buttons
+- **Startup defaults** with Clock off and Now Playing on, so a fresh install opens with the most
+  useful media and strip overlays active
+- **Customisation**: accent colour, opacity, corner radius, text scale, strip position, alert sounds,
+  weather location, and weather units
+- **Narrow update paths** so ticker changes restart only the ticker, while simple widget toggles do
+  not tear down the entire overlay stack
 
 ## Screenshots
 
-| Widgets | Notifications | Navigation | Appearance | About |
+**Fullscreen Now Playing** — album art, source-app logo, album name, live progress / track length,
+transport controls, plus screen-off and close:
+
+![Fullscreen Now Playing](screenshots/10_now_playing_fullscreen.png)
+
+| Widgets | Now Playing | Status strip | Ticker | Settings |
 |---|---|---|---|---|
-| ![](screenshots/01_widgets.png) | ![](screenshots/02_notifications.png) | ![](screenshots/03_navigation.png) | ![](screenshots/04_appearance.png) | ![](screenshots/05_about.png) |
+| ![](screenshots/01_widgets.png) | ![](screenshots/02_now_playing.png) | ![](screenshots/03_status_strip.png) | ![](screenshots/04_ticker.png) | ![](screenshots/05_settings.png) |
+
+| Notifications | Navigation | Appearance | About |
+|---|---|---|---|
+| ![](screenshots/06_notifications.png) | ![](screenshots/07_navigation.png) | ![](screenshots/08_appearance.png) | ![](screenshots/09_about.png) |
 
 ## Requirements
 
