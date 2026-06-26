@@ -168,6 +168,7 @@ class OverlayService : Service() {
     private val draggables = mutableListOf<Pair<View, WindowManager.LayoutParams>>()
 
     private var ntfy: NtfyClient? = null
+    private var ntfyCfgLoaded: String = ""
     private var weather: WeatherClient? = null
     private var weatherCfgLoaded: String = ""
     private var ticker: TickerClient? = null
@@ -406,14 +407,19 @@ class OverlayService : Service() {
 
     private fun syncBackgroundClients() {
         val topic = prefs.topic
+        // Reconnect when the topic, server, or token changes (not just on first start).
+        val ntfyCfg = "${prefs.ntfyServer}|$topic|${prefs.ntfyToken}"
         if (topic.isNotBlank()) {
-            if (ntfy == null) {
+            if (ntfy == null || ntfyCfgLoaded != ntfyCfg) {
+                ntfy?.stop(); ntfyCfgLoaded = ntfyCfg; connected = false
                 ntfy = NtfyClient(topic,
+                    server = prefs.ntfyServer,
+                    token = prefs.ntfyToken,
                     onConnected = { c -> main.post { connected = c; updateLiveText() } },
                     onMessage = { title, msg -> main.post { showBanner(title, msg) } }
                 ).also { it.start() }
             }
-        } else { ntfy?.stop(); ntfy = null; connected = false }
+        } else { ntfy?.stop(); ntfy = null; ntfyCfgLoaded = ""; connected = false }
 
         val needWeather = prefs.weatherEnabled || prefs.stripShowWeather || prefs.stripShowRain || prefs.stripShowSun
         val city = prefs.weatherCity

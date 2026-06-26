@@ -9,13 +9,17 @@ import java.net.URL
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Streaming listener for ntfy.sh. Connects to https://ntfy.sh/<topic>/json which keeps the
- * connection open and emits one JSON object per line. Runs on its own thread and auto-reconnects
- * with backoff. No third-party HTTP client — plain HttpURLConnection + org.json keeps the APK lean
- * and avoids any GMS dependency (which Portal lacks).
+ * Streaming listener for an ntfy server. Connects to <server>/<topic>/json which keeps the
+ * connection open and emits one JSON object per line. [server] defaults to the public ntfy.sh but
+ * can point at a self-hosted instance; [token], when set, is sent as a Bearer token so read-protected
+ * (private) topics work. Runs on its own thread and auto-reconnects with backoff. No third-party HTTP
+ * client — plain HttpURLConnection + org.json keeps the APK lean and avoids any GMS dependency
+ * (which Portal lacks).
  */
 class NtfyClient(
     private val topic: String,
+    private val server: String = "https://ntfy.sh",
+    private val token: String = "",
     private val onConnected: (Boolean) -> Unit,
     private val onMessage: (title: String, message: String) -> Unit,
 ) {
@@ -34,16 +38,24 @@ class NtfyClient(
         thread?.interrupt()
     }
 
+    /** Normalised server base, e.g. "https://ntfy.sh" — adds https:// if no scheme, drops trailing /. */
+    private fun baseUrl(): String {
+        var s = server.trim().ifBlank { "https://ntfy.sh" }
+        if (!s.startsWith("http://", true) && !s.startsWith("https://", true)) s = "https://$s"
+        return s.trimEnd('/')
+    }
+
     private fun loop() {
         var backoff = 2000L
         while (running.get()) {
             try {
-                val url = URL("https://ntfy.sh/${topic}/json")
+                val url = URL("${baseUrl()}/${topic}/json")
                 val c = (url.openConnection() as HttpURLConnection).apply {
                     connectTimeout = 10_000
                     readTimeout = 0 // stream stays open indefinitely
                     requestMethod = "GET"
                     setRequestProperty("Accept", "application/x-ndjson")
+                    if (token.isNotBlank()) setRequestProperty("Authorization", "Bearer $token")
                 }
                 conn = c
                 c.connect()
@@ -80,7 +92,7 @@ class NtfyClient(
             val obj = JSONObject(trimmed)
             // ntfy emits keepalive/open events too — only surface actual messages.
             if (obj.optString("event") != "message") return
-            val title = obj.optString("title", "").ifBlank { "ntfy.sh/$topic" }
+            val title = obj.optString("title", "").ifBlank { topic }
             val message = obj.optString("message", "")
             if (message.isNotBlank() || title.isNotBlank()) onMessage(title, message)
         } catch (e: Exception) {

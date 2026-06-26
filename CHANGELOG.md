@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Self-hosted ntfy support** - the Notifications page now has an "ntfy server" field, so you can
+  point Portal Overlays at your own ntfy instance (e.g. `https://ntfy.example.com`) instead of the
+  public `ntfy.sh` and keep messages on your own server. An optional access token (sent as a Bearer
+  token) lets read-protected / private topics work, and plain-`http://` LAN servers are allowed.
+  Changing the server, token, or topic now reconnects the listener live. Defaults are unchanged
+  (public `ntfy.sh`, no token), so existing setups keep working.
+
 ## [1.6] - 2026-06-26
 
 ### Added

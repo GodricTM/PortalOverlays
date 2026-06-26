@@ -6,7 +6,7 @@ A floating HUD for sideloaded Meta Portal devices. Draws widgets, banners, mirro
 
 ## Features
 
-- **Push banners** from ntfy.sh (no Firebase / no FCM)
+- **Push banners** from ntfy.sh — or your own self-hosted ntfy server (with optional access token) to keep messages private — no Firebase / no FCM
 - **Mirrored notifications** from other apps as overlay banners
 - **Draggable widgets**: clock, weather, battery, sticky note
 - **Ticker overlay** from a real RSS, Atom, or JSON feed, shown along the top or bottom edge, with built-in live source presets (BBC, AP, NPR) plus live finance sources (crypto via CoinGecko, stocks via Stooq)
@@ -134,6 +134,15 @@ Pick a long, unguessable topic name, then subscribe to it in the app's Notificat
 curl -d "Kitchen timer done" https://ntfy.sh/your-topic
 curl -H "Title: Doorbell" -H "Priority: high" \
      -d "Someone is at the door" https://ntfy.sh/your-topic
+```
+
+### Self-hosted ntfy
+
+To keep messages off the public server, run your own [ntfy](https://docs.ntfy.sh/install/) instance and set the **Server URL** on the Notifications tab (e.g. `https://ntfy.example.com`, or a plain `http://` LAN address). For a read-protected/private topic, generate an access token (`ntfy token add <user>`) and paste it into the **Access token** field — it's sent as a Bearer token. Then publish to your own server:
+
+```bash
+curl -H "Authorization: Bearer tk_yourtoken" \
+     -d "Private message" https://ntfy.example.com/your-topic
 ```
 
 ## Credits

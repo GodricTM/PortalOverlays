@@ -29,6 +29,14 @@ class Prefs(context: Context) {
     // ---- ntfy -------------------------------------------------------------
     var topic: String
         get() = str("topic", ""); set(v) = setStr("topic", v.trim())
+    /** Base URL of the ntfy server. Defaults to the public ntfy.sh; point it at a self-hosted
+     *  instance (e.g. https://ntfy.example.com) to keep messages on your own server. */
+    var ntfyServer: String
+        get() = str("ntfyServer", "https://ntfy.sh"); set(v) = setStr("ntfyServer", v.trim())
+    /** Optional access token for a protected / self-hosted topic, sent as an `Authorization: Bearer`
+     *  header. Leave blank for public topics. */
+    var ntfyToken: String
+        get() = str("ntfyToken", ""); set(v) = setStr("ntfyToken", v.trim())
 
     // ---- appearance -------------------------------------------------------
     var accentColor: Int

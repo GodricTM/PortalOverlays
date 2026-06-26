@@ -794,13 +794,30 @@ private fun StripTab(prefs: Prefs, accent: Color, refresh: () -> Unit) {
 
 @Composable
 private fun NotifyTab(context: android.content.Context, prefs: Prefs, accent: Color, refresh: () -> Unit) {
-    Section("ntfy.sh topic", "Every message published to this topic pops a banner on top of any app.") {
+    Section("ntfy server", "Use the public ntfy.sh, or point this at your own self-hosted instance to keep messages private.") {
+        var server by remember { mutableStateOf(prefs.ntfyServer) }
+        var token by remember { mutableStateOf(prefs.ntfyToken) }
+        Field("Server URL", server, "https://ntfy.sh", onCommit = { refresh() }) {
+            server = it; prefs.ntfyServer = it
+        }
+        Field("Access token (optional)", token, "tk_… for a protected topic", onCommit = { refresh() }) {
+            token = it; prefs.ntfyToken = it
+        }
+        Text(
+            "For a self-hosted server enter its URL (e.g. https://ntfy.example.com). Add an access " +
+                "token only if the topic is read-protected; leave it blank for public topics.",
+            color = MUTED, fontSize = 13.sp
+        )
+    }
+    Section("ntfy topic", "Every message published to this topic pops a banner on top of any app.") {
         var topic by remember { mutableStateOf(prefs.topic) }
         Field("Topic", topic, "e.g. portal-denis-7f3a", onCommit = { refresh() }) {
             topic = it; prefs.topic = it
         }
         Spacer(Modifier.height(6.dp))
-        Code("curl -d \"Kitchen timer done\" ntfy.sh/${topic.ifBlank { "your-topic" }}")
+        val host = prefs.ntfyServer.ifBlank { "https://ntfy.sh" }
+            .removePrefix("https://").removePrefix("http://").trimEnd('/')
+        Code("curl -d \"Kitchen timer done\" $host/${topic.ifBlank { "your-topic" }}")
     }
     Section("Banners", "How incoming messages appear.") {
         var secs by remember { mutableStateOf(prefs.bannerSeconds.toFloat()) }
