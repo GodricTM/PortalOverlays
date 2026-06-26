@@ -27,6 +27,11 @@ data class UpdateInfo(
     val notes: String
 )
 
+data class ReleaseDownloadStats(
+    val tagName: String,
+    val downloadCount: Long
+)
+
 sealed class UpdateResult {
     data class UpToDate(val installedVersionName: String, val remoteVersionName: String) : UpdateResult()
     data class Available(val info: UpdateInfo, val installedVersionName: String) : UpdateResult()
@@ -139,6 +144,21 @@ object UpdateChecker {
                 is UpdateResult.Available -> showUpdateDialog(context, result.info, result.installedVersionName)
                 is UpdateResult.Failed -> showErrorDialog(context, result.message)
             }
+        }
+    }
+
+    fun fetchReleaseDownloadStats(tagName: String, onResult: (ReleaseDownloadStats?) -> Unit) {
+        io.execute {
+            val result = runCatching {
+                val json = httpGet(cacheBust("https://api.github.com/repos/GodricTM/PortalOverlays/releases/tags/$tagName", System.currentTimeMillis()))
+                val release = JSONObject(json)
+                val assets = release.optJSONArray("assets")
+                val total = (0 until (assets?.length() ?: 0)).sumOf { i ->
+                    assets?.optJSONObject(i)?.optLong("download_count", 0L) ?: 0L
+                }
+                ReleaseDownloadStats(tagName = release.optString("tag_name", tagName), downloadCount = total)
+            }.getOrNull()
+            main.post { onResult(result) }
         }
     }
 

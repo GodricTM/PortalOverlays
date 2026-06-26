@@ -567,6 +567,15 @@ private fun WidgetsTab(prefs: Prefs, accent: Color, syncWidgets: () -> Unit) {
         Toggle("Show note", on, accent) { on = it; prefs.noteEnabled = it; syncWidgets() }
         if (on) Field("Note text", txt, "Type your note") { txt = it; prefs.noteText = it; syncWidgets() }
     }
+    Section("Agenda", "Your next events from a public calendar (iCal / .ics link). No Google sign-in needed.") {
+        var on by remember { mutableStateOf(prefs.agendaEnabled) }
+        var ical by remember { mutableStateOf(prefs.calendarUrl) }
+        Toggle("Show agenda", on, accent) { on = it; prefs.agendaEnabled = it; syncWidgets() }
+        Field("Calendar URL (.ics / webcal)", ical, "https://calendar.google.com/.../basic.ics") {
+            ical = it; prefs.calendarUrl = it; syncWidgets()
+        }
+        Hint("Google Calendar → Settings → your calendar → \"Secret address in iCal format\". Apple/Outlook expose a public iCal link too.")
+    }
     Hint("Drag any widget to reposition it. Positions are remembered.")
 }
 
@@ -601,10 +610,58 @@ private fun NowPlayingControls(prefs: Prefs, accent: Color, refresh: () -> Unit)
     var on by remember { mutableStateOf(prefs.nowPlayingEnabled) }
     Toggle("Show now playing", on, accent) { on = it; prefs.nowPlayingEnabled = it; refresh() }
     if (on) {
+        var dock by remember { mutableStateOf(prefs.nowPlayingDockStyle) }
+        var autoHide by remember { mutableStateOf(prefs.nowPlayingAutoHide) }
         var expanded by remember { mutableStateOf(prefs.nowPlayingStartExpanded) }
         var style by remember { mutableStateOf(prefs.nowPlayingVisualizerStyle) }
         var layout by remember { mutableStateOf(prefs.nowPlayingLayoutStyle) }
         var progress by remember { mutableStateOf(prefs.nowPlayingShowProgress) }
+        Text("Docked widget", color = MUTED, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp))
+        val docks = Prefs.NOW_PLAYING_DOCKS
+        Segmented(
+            docks.map { it.second },
+            docks.indexOfFirst { it.first == dock }.coerceAtLeast(0),
+            accent
+        ) {
+            dock = docks[it].first; prefs.nowPlayingDockStyle = dock; refresh()
+        }
+        Text(
+            "Bubble = a small cover-art button. Strip = a floating bar with title, artist & progress. " +
+                "Edge bar = a full-width band at the top or bottom that comes and goes with playback.",
+            color = MUTED, fontSize = 13.sp
+        )
+        if (dock == "bubble") {
+            var bubbleStyle by remember { mutableStateOf(prefs.nowPlayingBubbleStyle) }
+            var bubbleSize by remember { mutableStateOf(prefs.nowPlayingBubbleSize) }
+            Text("Bubble style", color = MUTED, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp))
+            val bstyles = Prefs.NOW_PLAYING_BUBBLE_STYLES
+            Segmented(
+                bstyles.map { it.second },
+                bstyles.indexOfFirst { it.first == bubbleStyle }.coerceAtLeast(0),
+                accent
+            ) {
+                bubbleStyle = bstyles[it].first; prefs.nowPlayingBubbleStyle = bubbleStyle; refresh()
+            }
+            Text("Bubble size", color = MUTED, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp))
+            val sizes = Prefs.NOW_PLAYING_SIZES
+            Segmented(
+                sizes.map { it.second },
+                sizes.indexOfFirst { it.first == bubbleSize }.coerceAtLeast(0),
+                accent
+            ) {
+                bubbleSize = sizes[it].first; prefs.nowPlayingBubbleSize = bubbleSize; refresh()
+            }
+        }
+        if (dock == "edge") {
+            var edgePos by remember { mutableStateOf(prefs.nowPlayingEdgePosition) }
+            Text("Edge bar position", color = MUTED, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp))
+            Segmented(listOf("Top", "Bottom"), if (edgePos == "bottom") 1 else 0, accent) {
+                edgePos = if (it == 1) "bottom" else "top"; prefs.nowPlayingEdgePosition = edgePos; refresh()
+            }
+        }
+        Toggle("Hide when nothing is playing", autoHide, accent) {
+            autoHide = it; prefs.nowPlayingAutoHide = it; refresh()
+        }
         Toggle("Open full card when playing", expanded, accent) {
             expanded = it; prefs.nowPlayingStartExpanded = it; refresh()
         }
@@ -647,12 +704,25 @@ private fun TickerTab(prefs: Prefs, accent: Color, syncTicker: () -> Unit) {
             Segmented(listOf("Bottom", "Top"), if (top) 1 else 0, accent) {
                 top = it == 1; prefs.tickerPosition = if (top) "top" else "bottom"; syncTicker()
             }
+            var style by remember { mutableStateOf(prefs.tickerStyle) }
+            Text("Style", color = MUTED, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp))
+            TickerStylePicker(style, accent) { style = it; prefs.tickerStyle = it; syncTicker() }
         }
         Field("Feed URL (RSS/Atom or JSON)", url, "https://... .xml or .json") {
             url = it; prefs.tickerUrl = it; syncTicker()
         }
         Text("Quick sources", color = MUTED, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
         Prefs.TICKER_SOURCES.forEach { (label, source) ->
+            Ghost("Use $label", Modifier.fillMaxWidth()) {
+                on = true
+                url = source
+                prefs.tickerEnabled = true
+                prefs.tickerUrl = source
+                syncTicker()
+            }
+        }
+        Text("Live finance", color = MUTED, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+        Prefs.TICKER_FINANCE.forEach { (label, source) ->
             Ghost("Use $label", Modifier.fillMaxWidth()) {
                 on = true
                 url = source
@@ -677,6 +747,9 @@ private fun StripTab(prefs: Prefs, accent: Color, refresh: () -> Unit) {
             Segmented(listOf("Bottom", "Top"), if (top) 1 else 0, accent) {
                 top = it == 1; prefs.stripPosition = if (top) "top" else "bottom"; refresh()
             }
+            var style by remember { mutableStateOf(prefs.stripStyle) }
+            Text("Style", color = MUTED, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp))
+            StripStylePicker(style, accent) { style = it; prefs.stripStyle = it; refresh() }
             var c by remember { mutableStateOf(prefs.stripShowClock) }
             var d by remember { mutableStateOf(prefs.stripShowDate) }
             var w by remember { mutableStateOf(prefs.stripShowWeather) }
@@ -688,6 +761,7 @@ private fun StripTab(prefs: Prefs, accent: Color, refresh: () -> Unit) {
             var week by remember { mutableStateOf(prefs.stripShowWeek) }
             var rain by remember { mutableStateOf(prefs.stripShowRain) }
             var sun by remember { mutableStateOf(prefs.stripShowSun) }
+            var agenda by remember { mutableStateOf(prefs.stripShowAgenda) }
             var n by remember { mutableStateOf(prefs.stripShowNtfy) }
             var ctx by remember { mutableStateOf(prefs.stripShowContext) }
             var nav by remember { mutableStateOf(prefs.stripShowNavButtons) }
@@ -704,8 +778,13 @@ private fun StripTab(prefs: Prefs, accent: Color, refresh: () -> Unit) {
             Toggle("Week number", week, accent) { week = it; prefs.stripShowWeek = it; refresh() }
             Toggle("Rain in the next hour", rain, accent) { rain = it; prefs.stripShowRain = it; refresh() }
             Toggle("Time to sunset / sunrise", sun, accent) { sun = it; prefs.stripShowSun = it; refresh() }
+            Toggle("Next calendar event", agenda, accent) { agenda = it; prefs.stripShowAgenda = it; refresh() }
             if ((rain || sun) && prefs.weatherCity.isBlank()) {
                 Text("Set a Weather city in the Widgets tab - rain and sun times need a location.",
+                    color = MUTED, fontSize = 13.sp)
+            }
+            if (agenda && prefs.calendarUrl.isBlank()) {
+                Text("Add a Calendar URL in the Widgets tab - the next-event item needs an iCal link.",
                     color = MUTED, fontSize = 13.sp)
             }
             Toggle("ntfy status", n, accent) { n = it; prefs.stripShowNtfy = it; refresh() }
@@ -843,6 +922,13 @@ private fun LookTab(prefs: Prefs, accent: Color, onAccent: (Color) -> Unit, refr
 @Composable
 private fun AboutTab(accent: Color, onCheck: () -> Unit = {}) {
     val ctx = LocalContext.current
+    var releaseDownloads by remember { mutableStateOf<Long?>(null) }
+    val releaseTag = "v1.5"
+    LaunchedEffect(Unit) {
+        UpdateChecker.fetchReleaseDownloadStats(releaseTag) { stats ->
+            releaseDownloads = stats?.downloadCount
+        }
+    }
     Section("Portal Overlays", "A floating HUD for Meta Portal.") {
         Text(
             "Draws banners, widgets, alerts and a status strip on top of any app — including the " +
@@ -853,6 +939,15 @@ private fun AboutTab(accent: Color, onCheck: () -> Unit = {}) {
     }
     Section("Updates", "Compare against the latest release on GitHub.") {
         Primary("Check for updates", accent) { onCheck() }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            when (val count = releaseDownloads) {
+                null -> "Live GitHub release downloads: loading…"
+                else -> "Live GitHub release downloads for $releaseTag: $count"
+            },
+            color = MUTED,
+            fontSize = 14.sp
+        )
     }
     Section("Quick setup", "Tap to open the matching system settings page.") {
         Ghost("Allow draw over other apps", Modifier.fillMaxWidth()) {
@@ -883,8 +978,6 @@ private fun AboutTab(accent: Color, onCheck: () -> Unit = {}) {
         Code("metavr adb shell cmd notification allow_listener com.portal.overlays/com.portal.overlays.NotifyListenerService")
     }
     Section("Credits", "") {
-        Text("Made by GodricTM", color = TEXT, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(4.dp))
         Text("Open-Meteo for weather · ntfy.sh for push · made for the Portal sideloading community.",
             color = MUTED, fontSize = 14.sp)
     }
@@ -1034,6 +1127,98 @@ private fun Segmented(options: List<String>, selected: Int, accent: Color, onSel
 }
 
 @Composable
+private fun StripStylePicker(selected: String, accent: Color, onSelect: (String) -> Unit) {
+    val hints = mapOf(
+        "default" to "Compact, divided — the original look",
+        "accented" to "Coloured highlights per item",
+        "three-zones" to "Clock-forward, calmer accents",
+        "segments" to "Each item in a bordered cell",
+        "mono" to "Monospace, low-key",
+        "two-rows" to "Denser palette variant",
+        "frosted" to "Light translucent band (no true blur on Portal)",
+        "chips" to "Each item a tinted pill",
+        "aurora" to "Bold purple→teal gradient bar",
+        "daylight" to "Clean light theme for bright rooms",
+        "hud" to "Sci-fi mono, cyan/amber",
+        "sunset" to "Warm amber→magenta gradient",
+        "ocean" to "Cool teal→indigo gradient",
+        "graphite" to "Quiet greyscale, monospace",
+        "oled" to "True black, OLED-friendly",
+        "paper" to "Warm e-ink paper look",
+        "iconic" to "Icon before each item, no lines",
+        "hicontrast" to "Large bold text, AA-safe colours",
+        "sky" to "Sun-driven sky gradient (matches Immortal)",
+    )
+    Column {
+        Prefs.STRIP_STYLES.forEach { (id, label) ->
+            val active = id == selected
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (active) accent.copy(alpha = 0.16f) else PANEL2)
+                    .border(if (active) 2.dp else 0.dp, if (active) accent else Color.Transparent, RoundedCornerShape(12.dp))
+                    .clickable { onSelect(id) }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(label, color = TEXT, fontSize = 16.sp, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
+                    Text(hints[id] ?: "", color = MUTED, fontSize = 12.sp)
+                }
+                if (active) Text("✓", color = accent, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun TickerStylePicker(selected: String, accent: Color, onSelect: (String) -> Unit) {
+    // The ticker shares the strip's style catalogue; hints describe how each reads on a scrolling line
+    // (per-item strip chrome like chips/glyphs/dividers doesn't apply — only the bar fill + text do).
+    val hints = mapOf(
+        "default" to "Dark bar, light text — the original look",
+        "accented" to "Dark bar, light text",
+        "three-zones" to "Near-black bar",
+        "segments" to "Dark bar",
+        "mono" to "Monospace, low-key",
+        "two-rows" to "Dark bar",
+        "frosted" to "Light translucent band",
+        "chips" to "Near-black bar, dim text",
+        "aurora" to "Purple→teal gradient bar",
+        "daylight" to "Clean light theme for bright rooms",
+        "hud" to "Sci-fi mono, cyan",
+        "sunset" to "Warm amber→magenta gradient",
+        "ocean" to "Cool teal→indigo gradient",
+        "graphite" to "Greyscale gradient, monospace",
+        "oled" to "True black, OLED-friendly",
+        "paper" to "Warm e-ink paper look",
+        "iconic" to "Dark bar, light text",
+        "hicontrast" to "Large bold text on black",
+        "sky" to "Sun-driven sky gradient (matches Immortal)",
+    )
+    Column {
+        Prefs.STRIP_STYLES.forEach { (id, label) ->
+            val active = id == selected
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (active) accent.copy(alpha = 0.16f) else PANEL2)
+                    .border(if (active) 2.dp else 0.dp, if (active) accent else Color.Transparent, RoundedCornerShape(12.dp))
+                    .clickable { onSelect(id) }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(label, color = TEXT, fontSize = 16.sp, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
+                    Text(hints[id] ?: "", color = MUTED, fontSize = 12.sp)
+                }
+                if (active) Text("✓", color = accent, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
 private fun NavStylePicker(selected: String, accent: Color, onSelect: (String) -> Unit) {
     val hints = mapOf(
         "pill" to "Native-feeling all-rounder",
@@ -1088,4 +1273,3 @@ private fun switchColors(accent: Color) = SwitchDefaults.colors(
     checkedThumbColor = Color.White, checkedTrackColor = accent, checkedBorderColor = accent,
     uncheckedThumbColor = MUTED, uncheckedTrackColor = PANEL2, uncheckedBorderColor = LINE
 )
-

@@ -72,6 +72,21 @@ class Prefs(context: Context) {
     /** When media is playing, open the full card automatically instead of starting as a small bubble. */
     var nowPlayingStartExpanded: Boolean
         get() = bool("nowPlayingStartExpanded", false); set(v) = setBool("nowPlayingStartExpanded", v)
+    /** Docked widget shape: "bubble" (cover-art button), "strip" (floating bar) or "edge" (top/bottom band). */
+    var nowPlayingDockStyle: String
+        get() = str("nowPlayingDockStyle", "bubble"); set(v) = setStr("nowPlayingDockStyle", v)
+    /** Hide the docked widget when nothing is playing; it reappears the moment media starts. */
+    var nowPlayingAutoHide: Boolean
+        get() = bool("nowPlayingAutoHide", true); set(v) = setBool("nowPlayingAutoHide", v)
+    /** Edge bar position when the dock style is "edge": "top" or "bottom". */
+    var nowPlayingEdgePosition: String
+        get() = str("nowPlayingEdgePosition", "top"); set(v) = setStr("nowPlayingEdgePosition", v)
+    /** Bubble dock look: "rounded", "circle", "square" or "minimal". */
+    var nowPlayingBubbleStyle: String
+        get() = str("nowPlayingBubbleStyle", "rounded"); set(v) = setStr("nowPlayingBubbleStyle", v)
+    /** Bubble dock size: "small", "medium" or "large". */
+    var nowPlayingBubbleSize: String
+        get() = str("nowPlayingBubbleSize", "medium"); set(v) = setStr("nowPlayingBubbleSize", v)
     /** Background visualizer style for the full-screen now-playing overlay. */
     var nowPlayingVisualizerStyle: String
         get() = str("nowPlayingVisualizerStyle", "waves"); set(v) = setStr("nowPlayingVisualizerStyle", v)
@@ -88,12 +103,23 @@ class Prefs(context: Context) {
     var noteText: String
         get() = str("noteText", ""); set(v) = setStr("noteText", v)
 
+    // ---- agenda / calendar widget ----------------------------------------
+    /** Draggable card listing the next few events from the iCal feed. */
+    var agendaEnabled: Boolean
+        get() = bool("agendaEnabled", false); set(v) = setBool("agendaEnabled", v)
+    /** Public iCalendar (.ics / webcal) URL shared by the agenda widget and the strip next-event item. */
+    var calendarUrl: String
+        get() = str("calendarUrl", ""); set(v) = setStr("calendarUrl", v.trim())
+
     // ---- status strip -----------------------------------------------------
     var stripEnabled: Boolean
         get() = bool("stripEnabled", true); set(v) = setBool("stripEnabled", v)
     /** "bottom" or "top". Bottom by default — Portal's system pills live in the top strip. */
     var stripPosition: String
         get() = str("stripPosition", "bottom"); set(v) = setStr("stripPosition", v)
+    /** Visual style of the strip chrome. See OverlayService.stripStyleFor() for the catalogue. */
+    var stripStyle: String
+        get() = str("stripStyle", "default"); set(v) = setStr("stripStyle", v)
     var stripShowClock: Boolean
         get() = bool("stripShowClock", true); set(v) = setBool("stripShowClock", v)
     var stripShowDate: Boolean
@@ -124,6 +150,9 @@ class Prefs(context: Context) {
     /** Time until the next sunset or sunrise from Open-Meteo (e.g. "☀ 3h12m"). */
     var stripShowSun: Boolean
         get() = bool("stripShowSun", true); set(v) = setBool("stripShowSun", v)
+    /** Next calendar event from the iCal feed (e.g. "Standup · in 25m"). Needs a calendar URL. */
+    var stripShowAgenda: Boolean
+        get() = bool("stripShowAgenda", false); set(v) = setBool("stripShowAgenda", v)
     /** Foreground app / Portal UI label shown in the strip. */
     var stripShowContext: Boolean
         get() = bool("stripShowContext", true); set(v) = setBool("stripShowContext", v)
@@ -160,6 +189,9 @@ class Prefs(context: Context) {
     /** Scroll speed in pixels/second. */
     var tickerSpeed: Int
         get() = int("tickerSpeed", 60); set(v) = setInt("tickerSpeed", v.coerceIn(20, 200))
+    /** Visual style of the ticker chrome. See OverlayService.tickerStyleFor() for the catalogue. */
+    var tickerStyle: String
+        get() = str("tickerStyle", "default"); set(v) = setStr("tickerStyle", v)
 
     // ---- system-notification mirror --------------------------------------
     /** Mirror other apps' notifications (WhatsApp, Messenger, …) as floating banners. */
@@ -208,6 +240,28 @@ class Prefs(context: Context) {
 
     companion object {
         /** Nav cluster styles: id → human label. Order drives the settings selector. */
+        val STRIP_STYLES = listOf(
+            "default" to "Dense Dark",
+            "accented" to "Accented",
+            "three-zones" to "Three Zones",
+            "segments" to "Segments",
+            "mono" to "Minimal Mono",
+            "two-rows" to "Two Rows",
+            "frosted" to "Frosted Glass",
+            "chips" to "Tinted Chips",
+            "aurora" to "Aurora",
+            "daylight" to "Daylight",
+            "hud" to "HUD Tactical",
+            "sunset" to "Sunset",
+            "ocean" to "Ocean",
+            "graphite" to "Mono Graphite",
+            "oled" to "OLED Black",
+            "paper" to "E-ink Paper",
+            "iconic" to "Iconic",
+            "hicontrast" to "High Contrast",
+            "sky" to "Sky",
+        )
+
         val NAV_STYLES = listOf(
             "pill" to "Pill segments",
             "underline" to "Underline indicator",
@@ -230,6 +284,24 @@ class Prefs(context: Context) {
             "centered" to "Centered",
             "poster" to "Poster",
         )
+        val NOW_PLAYING_DOCKS = listOf(
+            "bubble" to "Bubble",
+            "strip" to "Strip",
+            "edge" to "Edge bar",
+        )
+        val NOW_PLAYING_BUBBLE_STYLES = listOf(
+            "rounded" to "Rounded",
+            "circle" to "Circle",
+            "square" to "Square",
+            "minimal" to "Minimal",
+        )
+        val NOW_PLAYING_SIZES = listOf(
+            "small" to "Small",
+            "medium" to "Medium",
+            "large" to "Large",
+        )
+
+        // The ticker shares STRIP_STYLES (see OverlayService.tickerStyleFor), so there's no separate list.
 
         val TICKER_SOURCES = listOf(
             "BBC News" to "https://feeds.bbci.co.uk/news/rss.xml",
@@ -237,6 +309,12 @@ class Prefs(context: Context) {
             "AP Top News" to "https://apnews.com/hub/apf-topnews?output=rss",
             "NPR News Now" to "https://feeds.npr.org/510320/podcast.xml",
             "NPR News Now 5 min" to "https://feeds.npr.org/500005/podcast.xml",
+        )
+
+        /** Live-finance ticker sources — handled specially by TickerClient (not feed URLs). */
+        val TICKER_FINANCE = listOf(
+            "Crypto (CoinGecko)" to "finance:crypto",
+            "Stocks (Stooq)" to "finance:stocks",
         )
 
         const val DEFAULT_ACCENT = 0xFFFF375F.toInt()

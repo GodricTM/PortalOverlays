@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6] - 2026-06-26
+
+### Added
+- **Now Playing dock shapes** - the docked Now Playing widget can now be a **Strip** (a floating bar
+  with cover art, title, artist and a slim live progress bar plus a play/pause button) or an **Edge
+  bar** (a full-width band pinned to the top or bottom of the screen that comes and goes with
+  playback), in addition to the original cover-art **Bubble**. Pick the shape under "Docked widget" on
+  the Now Playing page; tapping any of them still opens the full card.
+- **Edge bar controls & extras** - the Now Playing edge bar shows the source-app logo, a mini
+  equaliser that pulses while playing, previous / play-pause / next transport buttons, and (with
+  "Show progress & track length" on) elapsed / total time around the progress bar.
+- **Status strip network speed no longer jitters** - the live network-speed readout now sits in a
+  fixed-width slot, so its per-second updates ("0 B/s" -> "12.3 MB/s") stop shoving the strip items
+  after it left and right.
+- **Bubble styles & sizes** - the cover-art bubble now has four looks (Rounded, Circle, Square,
+  Minimal) and three sizes (Small, Medium, Large), selectable on the Now Playing page when the dock
+  is set to Bubble.
+- **Auto-hide Now Playing when idle** - the docked Now Playing widget shows only while audio is
+  actually playing and fades out as soon as you pause, stop, or close the player, so it no longer
+  sits on screen empty. Controlled by "Hide when nothing is playing" (on by default). It ignores
+  always-on / stale media sessions (the Portal's built-in Alexa runtime, which idles with empty
+  metadata, and players like Spotify that linger in a paused state after they're closed) so they no
+  longer keep the widget pinned on screen.
+- **Status strip styles** - the status strip now has 19 selectable looks, chosen from a new "Style"
+  picker on the Status strip page: Dense Dark (the original), Accented, Three Zones, Segments,
+  Minimal Mono, Two Rows, Frosted Glass, Tinted Chips, Aurora, Daylight, HUD Tactical, Sunset, Ocean,
+  Mono Graphite, OLED Black, E-ink Paper, Iconic, High Contrast, and Sky (a dynamic sunrise/sunset
+  gradient). Each style drives the bar fill (solid or gradient), text and per-item accent colours,
+  separators (lines / tinted pills / bordered cells), monospace, and Wi-Fi bar colours. The default
+  is unchanged (Dense Dark), and switching rebuilds the strip live. Note: Frosted Glass is a
+  translucent band rather than a true backdrop blur (blur needs API 31+; the Portal runs 28-29),
+  and Three Zones / Two Rows are palette variants on the single-row layout.
+- **Agenda / calendar widget** - a draggable card lists the next few events from a public iCalendar
+  (`.ics` / webcal) feed, and the status strip can show a single next-event line ("Standup · in
+  25m"). Set the feed URL on the Settings page.
+- **Finance ticker sources** - the bottom ticker can now scroll live crypto prices (CoinGecko) or
+  stock quotes (Stooq) alongside the existing RSS / Atom / JSON news feeds.
+- **Live GitHub release counter** - the About tab now shows the current GitHub release download count
+  for the installed version, so users can see a live public usage signal from the release asset.
+
 ## [1.5] - 2026-06-22
 
 ### Added
@@ -22,7 +62,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to bring it back.
 - **Overlays auto re-arm** - reopening the app now brings the overlays back automatically; you no
   longer have to toggle "running" off and on after the Portal kills the background service.
-- **About credit** - the About page now credits the author (Made by GodricTM).
 - **Storage grant for screenshots** - `enable_portal_permissions` now grants `WRITE_EXTERNAL_STORAGE`
   so screenshots land in the gallery on pre-Android 10 Portals.
 - **Dedicated strip and ticker pages** - Status strip and Ticker now have their own pages in the

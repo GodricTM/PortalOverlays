@@ -9,7 +9,7 @@ A floating HUD for sideloaded Meta Portal devices. Draws widgets, banners, mirro
 - **Push banners** from ntfy.sh (no Firebase / no FCM)
 - **Mirrored notifications** from other apps as overlay banners
 - **Draggable widgets**: clock, weather, battery, sticky note
-- **Ticker overlay** from a real RSS, Atom, or JSON feed, shown along the top or bottom edge, with built-in live source presets (BBC, AP, NPR)
+- **Ticker overlay** from a real RSS, Atom, or JSON feed, shown along the top or bottom edge, with built-in live source presets (BBC, AP, NPR) plus live finance sources (crypto via CoinGecko, stocks via Stooq)
 - **Status strip** with time, date, foreground app / Portal UI label, weather, battery, ntfy state,
   live network speed, ISO week, rain-in-next-hour, sunrise/sunset countdown, streaming, VPN, and
   Wi-Fi indicators, plus optional wider Back / Home / Recents buttons on the right
@@ -17,10 +17,23 @@ A floating HUD for sideloaded Meta Portal devices. Draws widgets, banners, mirro
 - **Portal Mini app switcher fallback** when the Portal system has no Recents/Overview UI
 - **Eight nav styles**: Pill segments, Underline indicator, Ghost pill, Floating squares, Dark glass,
   Icon + label, Colour-coded, and Dot indicator
+- **Now Playing dock shapes**: pick how the docked widget looks — a small cover-art **Bubble** (four
+  styles: Rounded, Circle, Square, Minimal; three sizes), a floating **Strip** (cover art, title,
+  artist, slim progress bar, play/pause), or a full-width **Edge bar** pinned to the top or bottom
+  (source-app logo, mini equaliser, prev / play-pause / next, and elapsed / total time). All of them
+  **auto-hide when nothing is playing** and reappear the moment audio starts, and tapping any opens
+  the full card
 - **Fullscreen Now Playing** with multiple background visualizers, multiple full-card layouts,
-  transport controls, and a compact/expanded start preference — now also showing a **live progress
-  bar with elapsed time and track length**, the **album name**, the **source-app logo** (e.g.
-  Spotify), and a **screen-off button** next to the close control
+  transport controls, and a compact/expanded start preference — a **live progress bar with elapsed
+  time and track length**, the **album name**, the **source-app logo** (e.g. Spotify), and a
+  **screen-off button** next to the close control
+- **Agenda / calendar widget**: a draggable card showing the next few events from a public iCalendar
+  (`.ics` / webcal) feed, plus an optional next-event line on the status strip
+- **Status strip styles**: 19 selectable looks for the strip (Dense Dark, Accented, Three Zones,
+  Segments, Minimal Mono, Two Rows, Frosted Glass, Tinted Chips, Aurora, Daylight, HUD Tactical,
+  Sunset, Ocean, Mono Graphite, OLED Black, E-ink Paper, Iconic, High Contrast, and a dynamic Sky),
+  picked from a "Style" list on the Status strip page — each restyles the bar fill, text and accent
+  colours, separators, and font
 - **Status strip hide / restore**: a small chevron collapses the strip (and the ticker that rides
   with it) to a tiny handle so you can read what's underneath, then tap the handle to bring it back
 - **Overlays auto re-arm**: reopening the app restores the overlays automatically — no toggling

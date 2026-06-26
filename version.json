@@ -1,6 +1,6 @@
 {
-  "versionCode": 6,
-  "versionName": "1.5",
-  "apkUrl": "https://github.com/GodricTM/PortalOverlays/releases/download/v1.5/PortalOverlays-v1.5-release.apk",
-  "notes": "v1.5 - Fullscreen Now Playing with progress/track length, album and source-app logo, plus a screen-off button; status strip hide/restore (takes the ticker with it); overlays auto re-arm when you reopen the app; dedicated Status strip / Ticker / Settings / Now Playing pages; and a fixed screenshot button that saves to the gallery instead of crashing. See CHANGELOG.md for details."
+  "versionCode": 7,
+  "versionName": "1.6",
+  "apkUrl": "https://github.com/GodricTM/PortalOverlays/releases/download/v1.6/PortalOverlays-v1.6-release.apk",
+  "notes": "v1.6 - Now Playing dock shapes (Bubble / Strip / floating Edge bar) that auto-hide when nothing is playing; the edge bar adds the source-app logo, a mini equaliser, prev/play-pause/next controls and elapsed/total time; bubble styles (Rounded / Circle / Square / Minimal) and sizes; 19 status-strip styles; an agenda/calendar (iCal) widget; finance ticker sources (crypto/stocks); and a fixed-width network-speed readout so it no longer jitters the strip. See CHANGELOG.md for details."
 }

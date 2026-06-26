@@ -32,6 +32,10 @@ class WeatherClient(
         val sunEventEpoch: Long = 0L,
         /** True when the next sun event is a sunset, false when it's a sunrise. */
         val sunIsSunset: Boolean = false,
+        /** Today's sunrise as epoch millis, or 0 if unknown (drives the Sky strip gradient). */
+        val todaySunriseEpoch: Long = 0L,
+        /** Today's sunset as epoch millis, or 0 if unknown (drives the Sky strip gradient). */
+        val todaySunsetEpoch: Long = 0L,
     )
 
     private val running = AtomicBoolean(false)
@@ -102,11 +106,16 @@ class WeatherClient(
 
         val offsetSec = obj.optLong("utc_offset_seconds", 0L)
         val (sunEpoch, sunIsSunset) = nextSunEpoch(obj, offsetSec)
+        val daily = obj.optJSONObject("daily")
+        val todaySunrise = daily?.optJSONArray("sunrise")?.let { parseLocalIso(it.optString(0), offsetSec) } ?: 0L
+        val todaySunset = daily?.optJSONArray("sunset")?.let { parseLocalIso(it.optString(0), offsetSec) } ?: 0L
         val extras = Extras(
             rainStartEpoch = nextRainEpoch(obj, offsetSec),
             rainHorizonEpoch = System.currentTimeMillis() + 60 * 60_000L,
             sunEventEpoch = sunEpoch,
             sunIsSunset = sunIsSunset,
+            todaySunriseEpoch = todaySunrise,
+            todaySunsetEpoch = todaySunset,
         )
         return Triple("${Math.round(temp)}$symbol", describe(code), extras)
     }
