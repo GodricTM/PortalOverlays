@@ -3,6 +3,8 @@
 A big Now Playing update — three dock shapes that come and go with playback — plus more status-strip
 styles, an agenda/calendar widget, finance ticker sources, and a steadier status strip.
 
+![The new Now Playing page — dock shapes (Bubble / Strip / Edge bar), edge-bar position, and auto-hide](https://github.com/GodricTM/PortalOverlays/releases/download/v1.6/02_now_playing.png)
+
 ## What's in this release
 
 - **Now Playing dock shapes**: choose how the docked widget looks — a small cover-art **Bubble**
