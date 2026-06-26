@@ -949,8 +949,8 @@ private fun AboutTab(accent: Color, onCheck: () -> Unit = {}) {
     Section("Portal Overlays", "A floating HUD for Meta Portal.") {
         Text(
             "Draws banners, widgets, alerts and a status strip on top of any app — including the " +
-            "Immortal launcher — and listens to ntfy.sh for push notifications. Built for sideloaded " +
-            "Portal devices (no Google services required).",
+            "Immortal launcher — and listens to ntfy.sh (or your own self-hosted server) for push " +
+            "notifications. Built for sideloaded Portal devices (no Google services required).",
             color = MUTED, fontSize = 15.sp
         )
     }

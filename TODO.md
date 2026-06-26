@@ -4,7 +4,7 @@ Working tracker for release prep and follow-up work. Newest items at top.
 
 ## Current status snapshot
 - **Widgets page** - core widgets stay on one page; Now Playing lives on its own dedicated tab.
-- **Now Playing page** - music controls have a dedicated tab for faster access and clearer separation.
+- **Now Playing page** - dedicated tab. The docked widget can be a Bubble (4 styles / 3 sizes), a floating Strip, or a full-width Edge bar (top/bottom), and all auto-hide when nothing is actually playing.
 - **Settings page** - weather location and weather units live outside the Weather widget now.
 - **Startup defaults** - Clock starts off; Now Playing and the bottom status strip start on.
 - **Status strip** - foreground context, weather, network speed, Wi-Fi, week, rain, sunrise/sunset, and optional nav buttons are in place by default.
@@ -12,9 +12,29 @@ Working tracker for release prep and follow-up work. Newest items at top.
 - **Widget refreshes** - simple on/off changes now use narrower update paths instead of rebuilding every overlay.
 - **Strip nav buttons** - the optional Back / Home / Recents buttons have been widened for better touch use.
 - **Navigation** - floating Back / Home / Recents and the strip-mounted nav option are already implemented.
-- **Notifications** - ntfy banners and mirrored notifications remain available.
+- **Notifications** - ntfy banners and mirrored notifications remain available; ntfy can point at a self-hosted server (custom URL + optional access token) to keep messages private.
 
 ## Shipped work
+- [x] Self-hosted ntfy (v1.6) — Notifications tab gained an "ntfy server" section. `NtfyClient` now
+      takes a base server URL (scheme-normalised, trailing-slash trimmed) and an optional access token
+      sent as an `Authorization: Bearer` header, so a self-hosted instance and read-protected/private
+      topics work. The listener reconnects live when the server, token, or topic changes (previously it
+      only started when none was running). `usesCleartextTraffic=true` so plain-`http://` LAN servers
+      work on the Portal's Android 9. Defaults unchanged (public `ntfy.sh`, no token). Closes issue #1.
+- [x] Now Playing dock shapes (v1.6) — the docked widget can be a **Bubble** (4 styles:
+      Rounded/Circle/Square/Minimal, 3 sizes), a floating **Strip** (cover art, title, artist, slim
+      progress bar, play/pause), or a full-width **Edge bar** pinned top/bottom. The edge bar adds the
+      source-app logo, a mini equaliser (new transparent `MiniEqualizerView`), prev/play-pause/next
+      transport, and elapsed/total time. Tapping any dock opens the full card. Settings: "Docked
+      widget" selector + bubble style/size + edge position on the Now Playing page.
+- [x] Now Playing auto-hide (v1.6) — docks show only while audio is actually playing (or buffering)
+      and fade out on pause/stop/close. Ignores always-on / stale media sessions: the fix requires a
+      meaningful state (PLAYING/PAUSED/BUFFERING) **and** a non-blank title, so the Portal's idle Alexa
+      runtime (state=NONE, empty metadata) no longer pins the widget on screen. Toggle: "Hide when
+      nothing is playing" (default on).
+- [x] Status strip network speed fixed-width slot (v1.6) — the live ↓/↑ readout now sits in a
+      fixed-width box sized to the widest realistic value, so its per-second updates no longer shove
+      the strip items after it left and right.
 - [x] Agenda / calendar overlay — a new `CalendarClient` polls a public iCal (.ics / webcal) URL
       (keyless, no GMS; Google secret-iCal / Apple / Outlook). Parses VEVENTs with line-unfolding,
       UTC/floating/all-day DTSTART, and a basic RRULE next-occurrence (DAILY/WEEKLY/MONTHLY/YEARLY +
