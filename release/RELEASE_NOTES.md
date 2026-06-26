@@ -25,6 +25,9 @@ styles, an agenda/calendar widget, finance ticker sources, and a steadier status
   (`.ics` / webcal) feed, plus an optional next-event line on the status strip.
 - **Finance ticker sources**: the bottom ticker can scroll live crypto prices (CoinGecko) or stock
   quotes (Stooq) alongside the existing news feeds.
+- **Self-hosted ntfy**: point Portal Overlays at your own ntfy server (custom URL, plus an optional
+  access token for private/read-protected topics) instead of the public ntfy.sh, to keep messages on
+  your own server. Defaults are unchanged.
 - **Steadier status strip**: the live network-speed readout now sits in a fixed-width slot, so its
   per-second updates no longer shove the rest of the strip left and right.
 

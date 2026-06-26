@@ -22,7 +22,7 @@ android {
         applicationId = "com.portal.overlays"
         minSdk = 28
         targetSdk = 29
-        versionCode = 7
+        versionCode = 8
         versionName = "1.6"
     }
 

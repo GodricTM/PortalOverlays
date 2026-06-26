@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6] - 2026-06-26
+
 ### Added
 - **Self-hosted ntfy support** - the Notifications page now has an "ntfy server" field, so you can
   point Portal Overlays at your own ntfy instance (e.g. `https://ntfy.example.com`) instead of the
@@ -14,10 +16,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   token) lets read-protected / private topics work, and plain-`http://` LAN servers are allowed.
   Changing the server, token, or topic now reconnects the listener live. Defaults are unchanged
   (public `ntfy.sh`, no token), so existing setups keep working.
-
-## [1.6] - 2026-06-26
-
-### Added
 - **Now Playing dock shapes** - the docked Now Playing widget can now be a **Strip** (a floating bar
   with cover art, title, artist and a slim live progress bar plus a play/pause button) or an **Edge
   bar** (a full-width band pinned to the top or bottom of the screen that comes and goes with

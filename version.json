@@ -1,6 +1,6 @@
 {
-  "versionCode": 7,
+  "versionCode": 8,
   "versionName": "1.6",
   "apkUrl": "https://github.com/GodricTM/PortalOverlays/releases/download/v1.6/PortalOverlays-v1.6-release.apk",
-  "notes": "v1.6 - Now Playing dock shapes (Bubble / Strip / floating Edge bar) that auto-hide when nothing is playing; the edge bar adds the source-app logo, a mini equaliser, prev/play-pause/next controls and elapsed/total time; bubble styles (Rounded / Circle / Square / Minimal) and sizes; 19 status-strip styles; an agenda/calendar (iCal) widget; finance ticker sources (crypto/stocks); and a fixed-width network-speed readout so it no longer jitters the strip. See CHANGELOG.md for details."
+  "notes": "v1.6 - Now Playing dock shapes (Bubble / Strip / floating Edge bar) that auto-hide when nothing is playing; the edge bar adds the source-app logo, a mini equaliser, prev/play-pause/next controls and elapsed/total time; bubble styles (Rounded / Circle / Square / Minimal) and sizes; 19 status-strip styles; an agenda/calendar (iCal) widget; finance ticker sources (crypto/stocks); self-hosted ntfy support (custom server URL + access token to keep messages private); and a fixed-width network-speed readout so it no longer jitters the strip. See CHANGELOG.md for details."
 }
