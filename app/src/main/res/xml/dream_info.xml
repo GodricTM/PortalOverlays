@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Screensaver metadata. settingsActivity points the system "gear" on the dream at the app,
+     where the Screensaver tab configures the background and what to show. -->
+<dream xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsActivity="com.portal.overlays/.MainActivity" />

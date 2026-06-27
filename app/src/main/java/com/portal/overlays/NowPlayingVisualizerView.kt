@@ -37,9 +37,35 @@ class NowPlayingVisualizerView(context: Context) : View(context) {
             if (value) postInvalidateOnAnimation() else invalidate()
         }
 
+    /** When set and active, bars/rings move to live audio instead of the synthetic animation. */
+    var reactor: SoundReactor? = null
+
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val path = Path()
     private val rect = RectF()
+
+    /** True while we should keep animating: either playing, or live audio is coming in. */
+    private val animating get() = playing || (reactor?.active == true)
+
+    // Per-bar displayed value, eased toward the target each frame so motion stays fluid even when the
+    // reactor's band updates arrive in bursts (Portal's shared mic delivers choppy data).
+    private val display = FloatArray(96)
+
+    /** Energy 0..1 for a bar at position [frac]; live audio when reacting, else a synthetic wiggle. */
+    private fun energy(frac: Float, t: Float, i: Int): Float {
+        val r = reactor
+        if (r != null && r.active) {
+            val target = r.energyAt(frac)
+            val idx = i.coerceIn(0, display.size - 1)
+            display[idx] += (target - display[idx]) * 0.3f
+            return display[idx]
+        }
+        val idle = if (playing) 1f else 0.22f
+        val a = abs(sin(t * 2.4f + i * 0.29f))
+        val b = abs(sin(t * 1.35f - i * 0.17f + 1.7f))
+        val c = abs(sin(t * 3.1f + i * 0.071f))
+        return (0.18f + 0.44f * a + 0.28f * b + 0.10f * c) * idle
+    }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
@@ -52,10 +78,11 @@ class NowPlayingVisualizerView(context: Context) : View(context) {
             "rings" -> drawRingsScene(canvas, w, h, t)
             "constellation" -> drawConstellationScene(canvas, w, h, t)
             "prism" -> drawPrismScene(canvas, w, h, t)
+            "spectrum" -> drawSpectrumScene(canvas, w, h, t)
             else -> drawWavesScene(canvas, w, h, t)
         }
 
-        if (playing) postInvalidateOnAnimation()
+        if (animating) postInvalidateOnAnimation()
     }
 
     private fun drawWavesScene(canvas: Canvas, w: Float, h: Float, t: Float) {
@@ -175,6 +202,41 @@ class NowPlayingVisualizerView(context: Context) : View(context) {
         drawWaves(canvas, w, h, t)
     }
 
+    private fun drawSpectrumScene(canvas: Canvas, w: Float, h: Float, t: Float) {
+        drawBaseBackdrop(canvas, w, h, t, 0xFF0B0F18.toInt(), 0xFF07080B.toInt())
+        val lvl = reactor?.let { if (it.active) it.level else 0f } ?: 0f
+        drawAccentGlow(canvas, w * 0.5f, h * 0.5f, max(w, h) * (0.40f + 0.18f * lvl), 72, t)
+
+        val count = 56
+        val span = w * 0.84f
+        val gap = w * 0.004f
+        val barW = (span - gap * (count - 1)) / count
+        val startX = (w - span) / 2f
+        val midY = h * 0.52f
+        val maxH = h * 0.34f
+        for (i in 0 until count) {
+            // Mirror around the centre so the spectrum reads low → high → low across the width.
+            val frac = abs(i / (count - 1f) - 0.5f) * 2f
+            val e = energy(frac, t, i).coerceIn(0.04f, 1f)
+            val bh = maxH * e
+            val x = startX + i * (barW + gap)
+            rect.set(x, midY - bh, x + barW, midY - barW * 0.5f)
+            paint.shader = LinearGradient(
+                x, rect.top, x, rect.bottom,
+                alpha(Color.WHITE, 210), alpha(accentColor, 95), Shader.TileMode.CLAMP
+            )
+            canvas.drawRoundRect(rect, barW * 0.5f, barW * 0.5f, paint)
+            // Dim mirrored reflection below the centre line.
+            rect.set(x, midY + barW * 0.5f, x + barW, midY + bh * 0.7f)
+            paint.shader = LinearGradient(
+                x, rect.top, x, rect.bottom,
+                alpha(accentColor, 90), alpha(accentColor, 0), Shader.TileMode.CLAMP
+            )
+            canvas.drawRoundRect(rect, barW * 0.5f, barW * 0.5f, paint)
+        }
+        paint.shader = null
+    }
+
     private fun drawBaseBackdrop(canvas: Canvas, w: Float, h: Float, t: Float, midColor: Int, endColor: Int) {
         paint.shader = LinearGradient(
             0f, 0f, w, h,
@@ -231,15 +293,11 @@ class NowPlayingVisualizerView(context: Context) : View(context) {
         val startX = w * 0.14f
         val baseY = h * 0.79f
         val maxH = h * 0.28f
-        val idle = if (playing) 1f else 0.22f
 
         for (i in 0 until count) {
             val n = i / (count - 1f)
             val centerWeight = 1f - abs(n - 0.5f) * 0.9f
-            val a = abs(sin(t * 2.4f + i * 0.29f))
-            val b = abs(sin(t * 1.35f - i * 0.17f + 1.7f))
-            val c = abs(sin(t * 3.1f + i * 0.071f))
-            val energy = (0.18f + 0.44f * a + 0.28f * b + 0.10f * c) * centerWeight * idle
+            val energy = energy(n, t, i) * centerWeight
             val bh = maxH * energy.coerceIn(0.08f, 1f)
             val x = startX + i * (barW + gap)
             rect.set(x, baseY - bh, x + barW, baseY + bh * 0.18f)

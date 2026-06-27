@@ -27,6 +27,13 @@ A floating HUD for sideloaded Meta Portal devices. Draws widgets, banners, mirro
   transport controls, and a compact/expanded start preference — a **live progress bar with elapsed
   time and track length**, the **album name**, the **source-app logo** (e.g. Spotify), and a
   **screen-off button** next to the close control
+- **Screensaver that survives the screen saver**: a built-in `DreamService` that re-hosts the Now
+  Playing card (cover art, track / artist, the bouncing-bars equaliser), a large clock / date, and
+  battery on the idle screen — so they stay on-screen while the screen saver is showing, which a
+  floating overlay cannot (Android draws the saver on top of every app overlay). Choose the
+  background — **Black**, a **Photo** you pick, or a **Web page** URL such as an Immich Kiosk feed
+  (keeping your photo source behind the card) — on the new **Screensaver** tab, then set it as the
+  device screensaver. See [Screensaver](#screensaver) below
 - **Agenda / calendar widget**: a draggable card showing the next few events from a public iCalendar
   (`.ics` / webcal) feed, plus an optional next-event line on the status strip
 - **Status strip styles**: 19 selectable looks for the strip (Dense Dark, Accented, Three Zones,
@@ -125,6 +132,67 @@ npx -y metavr adb shell cmd notification allow_listener \
 > and the floating Back/Home/Recents cluster will start working.
 
 Then open the app and turn on **Overlays running**.
+
+## Screensaver
+
+The floating overlays use `TYPE_APPLICATION_OVERLAY`, the highest window type a sideloaded app may
+use — and Android composites a running screen saver / Daydream **on top of** it. So the now-playing
+widget and status strip are hidden the instant the screen saver starts; nothing a floating overlay
+does can paint over a screen saver. The only surface that survives one is the screen saver itself.
+
+Portal Overlays therefore ships its own screen saver — a `DreamService` that re-hosts the content
+people most want on the idle screen:
+
+- the **Now Playing card** (cover art, track / artist, the bouncing-bars equaliser),
+- a large **clock / date**, and a **battery** readout,
+
+drawn over a background you choose on the **Screensaver** tab: **Black**, a **Photo** you pick, or a
+**Web page** URL (e.g. an Immich Kiosk feed, so your photo source stays behind the card). The card
+reads media sessions through the same notification-listener access the overlays use and only appears
+while real audio is actually playing.
+
+### Set it as the screen saver
+
+The easiest way is the bundled helper — plug the Portal in (ADB enabled) and run, from a PC:
+
+```bat
+set_screensaver.bat
+```
+
+It auto-detects the Portal, registers this screen saver, allows the notification listener the
+now-playing card needs, and (if the Immortal launcher is installed) stops Immortal from reclaiming the
+slot. Switches:
+
+- `set_screensaver.bat -Revert` — hand the screen saver back (re-enables Immortal if present)
+- `set_screensaver.bat -KeepImmortal` — register without touching Immortal
+
+You can also set it from the app's **Screensaver** tab ("Open screensaver settings"), or by hand:
+
+```bash
+adb shell settings put secure screensaver_components com.portal.overlays/.NowPlayingDreamService
+adb shell settings put secure screensaver_enabled 1
+```
+
+### Running alongside the Immortal launcher
+
+The Immortal launcher re-asserts its own screen saver on boot and on every return to its home screen,
+which evicts any other screen saver. That self-healing is a no-op without `WRITE_SECURE_SETTINGS`, so
+`set_screensaver.bat` revokes that from Immortal for you (undo with `-Revert`). By hand:
+
+```bash
+adb shell pm revoke com.immortal.launcher android.permission.WRITE_SECURE_SETTINGS
+adb shell settings put secure screensaver_components com.portal.overlays/.NowPlayingDreamService
+adb shell settings put secure screensaver_enabled 1
+```
+
+To keep your Immich Kiosk feed, set the Screensaver background to **Web page** and paste the same
+Kiosk URL — you get the photo feed *and* the bouncing-bars now-playing on top, both surviving the
+screen saver.
+
+The visualizer animates whenever music is playing. A **React to live audio** option exists but is
+experimental and off by default — true audio reaction isn't achievable on Portal for a sideloaded app
+(the output mix is permission-locked and the mic is preempted by the always-on assistant). See
+[`docs/portal-audio-capture.md`](docs/portal-audio-capture.md).
 
 ## ntfy
 

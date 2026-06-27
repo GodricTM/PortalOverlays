@@ -7,6 +7,9 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- The Visualizer API (real-time music reactor for the now-playing/screensaver visualizers) is
+         gated behind RECORD_AUDIO even though it taps the output mix, not the microphone. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
@@ -46,6 +49,13 @@
             android:foregroundServiceType="dataSync|mediaProjection" />
 
         <activity
+            android:name=".ScreensaverPreviewActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.PortalOverlays" />
+
+        <activity
             android:name=".ScreenshotActivity"
             android:exported="false"
             android:excludeFromRecents="true"
@@ -62,6 +72,23 @@
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/nav_accessibility" />
+        </service>
+
+        <!-- The Portal Overlays screensaver. A dream is the only surface that survives the idle
+             screen saver, so the now-playing card + clock are re-hosted here. Set it as the device
+             screensaver to keep them on-screen while the screen saver is showing. -->
+        <service
+            android:name=".NowPlayingDreamService"
+            android:exported="true"
+            android:label="Overlays screensaver"
+            android:permission="android.permission.BIND_DREAM_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.dreams.DreamService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.dream"
+                android:resource="@xml/dream_info" />
         </service>
 
         <service

@@ -124,6 +124,7 @@ class OverlayService : Service() {
         override fun run() { updateNowPlayingProgress(); main.postDelayed(this, 1000) }
     }
     private var nowPlayingVisualizer: NowPlayingVisualizerView? = null
+    private var soundReactor: SoundReactor? = null
     private var noteView: View? = null
     private var noteText: TextView? = null
     private var agendaView: View? = null
@@ -169,6 +170,8 @@ class OverlayService : Service() {
 
     private var ntfy: NtfyClient? = null
     private var ntfyCfgLoaded: String = ""
+    // Lazily-created TTS for breaking-news alerts. Silent no-op on Portals without a TTS engine.
+    private var speaker: Speaker? = null
     private var weather: WeatherClient? = null
     private var weatherCfgLoaded: String = ""
     private var ticker: TickerClient? = null
@@ -245,7 +248,16 @@ class OverlayService : Service() {
                 startMediaSessions()
                 refreshActiveMediaSessions()
             }
+            ACTION_PREVIEW_NOW_PLAYING -> if (canDrawOverlays()) {
+                startMediaSessions()
+                refreshActiveMediaSessions()
+                showNowPlayingFull()
+            }
             ACTION_ALERT -> showAlert(intent.getStringExtra(EXTRA_KIND) ?: KIND_REMINDER)
+            ACTION_BREAKING -> showBreakingNews(
+                intent.getStringExtra(EXTRA_TITLE).orEmpty().ifBlank { "Breaking news" },
+                intent.getStringExtra(EXTRA_TEXT).orEmpty()
+            )
             ACTION_SCREENSHOT -> startScreenshot()
             ACTION_PROJECTION_RESULT -> {
                 val code = intent.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED)
@@ -416,7 +428,12 @@ class OverlayService : Service() {
                     server = prefs.ntfyServer,
                     token = prefs.ntfyToken,
                     onConnected = { c -> main.post { connected = c; updateLiveText() } },
-                    onMessage = { title, msg -> main.post { showBanner(title, msg) } }
+                    onMessage = { title, msg, priority, tags ->
+                        main.post {
+                            if (prefs.breakingNewsEnabled && isBreaking(priority, tags)) showBreakingNews(title, msg)
+                            else showBanner(title, msg)
+                        }
+                    }
                 ).also { it.start() }
             }
         } else { ntfy?.stop(); ntfy = null; ntfyCfgLoaded = ""; connected = false }
@@ -500,6 +517,7 @@ class OverlayService : Service() {
         weather?.stop(); weather = null; weatherCfgLoaded = ""
         ticker?.stop(); ticker = null; tickerCfgLoaded = ""
         calendar?.stop(); calendar = null; calCfgLoaded = ""
+        speaker?.stop(); speaker = null
         artworkIo.shutdownNow()
         stopMediaSessions()
         hideCountdown(); mediaProjection?.stop(); mediaProjection = null
@@ -1077,6 +1095,11 @@ class OverlayService : Service() {
 
         nowPlayingFullView = root
         nowPlayingVisualizer = visualizer
+        // Live audio reactor: drives the visualizer from the actual output mix when enabled and the
+        // Visualizer API is available (needs RECORD_AUDIO; falls back to the synthetic animation).
+        if (prefs.nowPlayingSoundReactive) {
+            soundReactor = SoundReactor().also { if (it.start()) visualizer.reactor = it }
+        }
         nowPlayingFullArt = art
         nowPlayingFullTitle = title
         nowPlayingFullSubtitle = subtitle
@@ -1107,6 +1130,7 @@ class OverlayService : Service() {
         val root = nowPlayingFullView ?: return
         stopNowPlayingProgressTicker()
         nowPlayingVisualizer?.playing = false
+        soundReactor?.stop(); soundReactor = null
         root.animate().alpha(0f).setDuration(140).withEndAction { safeRemove(root) }.start()
         clearNowPlayingFullRefs()
     }
@@ -1573,7 +1597,8 @@ class OverlayService : Service() {
                 ?: LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
             if (vertical) mlp.bottomMargin = gap else mlp.rightMargin = gap
             bar.addView(btn, mlp)
-            makeDraggable(btn, bar, lp, "nav", pressFeedback = true, onLongPress = onLongPress) {
+            makeDraggable(btn, bar, lp, "nav", pressFeedback = true, onLongPress = onLongPress,
+                locked = { prefs.navLocked }) {
                 if (needsAccessibility) runNavAction(label, action) else action()
             }
         }
@@ -2343,6 +2368,124 @@ class OverlayService : Service() {
         main.postDelayed(dismiss, prefs.bannerSeconds * 1000L)
     }
 
+    // ---- breaking news ----------------------------------------------------
+
+    /** A high-priority ntfy message (priority 5, or a "breaking"/"urgent" tag) gets the full
+     *  treatment instead of a normal banner. */
+    private fun isBreaking(priority: Int, tags: List<String>): Boolean =
+        priority >= 5 || tags.any { it.equals("breaking", true) || it.equals("urgent", true) }
+
+    private fun ensureSpeaker(): Speaker =
+        speaker ?: Speaker(this).also { speaker = it; it.start() }
+
+    /**
+     * Flashing full-width "BREAKING NEWS" popup with a strobing red eyebrow, a chime + haptics, and
+     * a spoken read-out of the headline through the Portal TTS engine. Stays visual-only (still
+     * flashes and chimes) on devices without a TTS engine installed.
+     */
+    private fun showBreakingNews(title: String, message: String) {
+        val headline = title.ifBlank { message }
+        if (headline.isBlank()) return
+        val sub = if (title.isBlank()) "" else message
+
+        val red = 0xFFFF1F2D.toInt()
+        val cardBg = withAlpha(0xFF1A0508.toInt(), prefs.overlayOpacity)
+
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(cardBg, prefs.cornerRadius)
+            clipToOutline = true
+            elevation = dp(18).toFloat()
+            minimumWidth = dp(520)
+        }
+
+        // Flashing red eyebrow band:  ● BREAKING NEWS
+        val dot = View(this).apply {
+            background = circle(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(dp(11), dp(11)).also { it.rightMargin = dp(10) }
+        }
+        val band = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(red)
+            setPadding(dp(22), dp(9), dp(22), dp(9))
+            addView(dot)
+            addView(TextView(this@OverlayService).apply {
+                text = "BREAKING NEWS"; setTextColor(Color.WHITE); textSize = scaled(15f)
+                letterSpacing = 0.18f
+                typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
+            })
+        }
+        card.addView(band)
+
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(16), dp(24), dp(18))
+        }
+        body.addView(TextView(this).apply {
+            text = headline; setTextColor(Color.WHITE); textSize = scaled(22f); maxWidth = dp(900)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        })
+        if (sub.isNotBlank()) body.addView(TextView(this).apply {
+            text = sub; setTextColor(0xFFE6B8BC.toInt()); textSize = scaled(15f); maxWidth = dp(900); setPadding(0, dp(6), 0, 0)
+        })
+        card.addView(body)
+
+        val container = FrameLayout(this).apply { setPadding(dp(20), 0, dp(20), 0) }
+        container.addView(card, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).also { it.gravity = Gravity.CENTER_HORIZONTAL })
+
+        val lp = baseParams().apply {
+            width = WindowManager.LayoutParams.MATCH_PARENT
+            gravity = Gravity.TOP
+            y = dp(70)
+        }
+        if (!safeAddView(container, lp)) return
+
+        // Entrance: drop in + settle.
+        val drop = -dp(180).toFloat()
+        container.translationY = drop; container.alpha = 0f
+        card.scaleX = 0.92f; card.scaleY = 0.92f
+        container.animate().translationY(0f).alpha(1f).setDuration(260).start()
+        card.animate().scaleX(1f).scaleY(1f).setDuration(260).start()
+
+        // Strobe the eyebrow + pulse the dot for urgency.
+        val bandFlash = ObjectAnimator.ofFloat(band, "alpha", 1f, 0.3f).apply {
+            duration = 380; repeatMode = ObjectAnimator.REVERSE; repeatCount = ObjectAnimator.INFINITE; start()
+        }
+        val dotPulseX = ObjectAnimator.ofFloat(dot, "scaleX", 1f, 0.55f).apply {
+            duration = 380; repeatMode = ObjectAnimator.REVERSE; repeatCount = ObjectAnimator.INFINITE; start()
+        }
+        val dotPulseY = ObjectAnimator.ofFloat(dot, "scaleY", 1f, 0.55f).apply {
+            duration = 380; repeatMode = ObjectAnimator.REVERSE; repeatCount = ObjectAnimator.INFINITE; start()
+        }
+
+        // Sound + haptics — breaking news always grabs attention.
+        vibrate()
+        runCatching {
+            val uri = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+            android.media.RingtoneManager.getRingtone(applicationContext, uri)?.play()
+        }
+
+        // Speak the headline through the (preferably Sherpa) Portal TTS engine.
+        if (prefs.breakingNewsSpeak) {
+            ensureSpeaker().speak(
+                "Breaking news. $headline",
+                Locale.getDefault(),
+                prefs.breakingNewsVolume / 100f
+            )
+        }
+
+        val dismiss = Runnable {
+            bandFlash.cancel(); dotPulseX.cancel(); dotPulseY.cancel()
+            container.animate().translationY(drop).alpha(0f).setDuration(240)
+                .withEndAction { safeRemove(container) }.start()
+        }
+        card.setOnClickListener { main.removeCallbacks(dismiss); dismiss.run() }
+        main.postDelayed(dismiss, prefs.breakingNewsSeconds * 1000L)
+    }
+
     // ---- alert overlay ---------------------------------------------------
 
     private fun showAlert(kind: String) {
@@ -2854,7 +2997,8 @@ class OverlayService : Service() {
      */
     private fun makeDraggable(
         touchTarget: View, moveView: View, lp: WindowManager.LayoutParams, posKey: String,
-        pressFeedback: Boolean = false, onLongPress: (() -> Unit)? = null, onTap: (() -> Unit)?
+        pressFeedback: Boolean = false, onLongPress: (() -> Unit)? = null,
+        locked: () -> Boolean = { false }, onTap: (() -> Unit)?
     ) {
         var downX = 0f; var downY = 0f; var startX = 0; var startY = 0; var moved = false; var longFired = false
         val slop = dp(8)
@@ -2868,6 +3012,8 @@ class OverlayService : Service() {
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
+                    // Locked overlays still tap (so the buttons keep working) but never move.
+                    if (locked()) return@setOnTouchListener true
                     val dx = (e.rawX - downX).roundToInt(); val dy = (e.rawY - downY).roundToInt()
                     if (abs(dx) > slop || abs(dy) > slop) { moved = true; main.removeCallbacks(longPress) }
                     val (x, y) = clampToScreen(moveView, startX + dx, startY + dy)
@@ -3002,8 +3148,10 @@ class OverlayService : Service() {
         const val ACTION_TEST_BANNER = "com.portal.overlays.TEST_BANNER"
         const val ACTION_BANNER = "com.portal.overlays.BANNER"
         const val ACTION_MEDIA_REFRESH = "com.portal.overlays.MEDIA_REFRESH"
+        const val ACTION_PREVIEW_NOW_PLAYING = "com.portal.overlays.PREVIEW_NOW_PLAYING"
         const val ACTION_CONTEXT_CHANGED = "com.portal.overlays.CONTEXT_CHANGED"
         const val ACTION_ALERT = "com.portal.overlays.ALERT"
+        const val ACTION_BREAKING = "com.portal.overlays.BREAKING"
         const val ACTION_SCREENSHOT = "com.portal.overlays.SCREENSHOT"
         const val ACTION_PROJECTION_RESULT = "com.portal.overlays.PROJECTION_RESULT"
         const val EXTRA_KIND = "kind"
@@ -3040,6 +3188,13 @@ class OverlayService : Service() {
 
         fun sendBanner(context: Context, title: String, text: String) {
             val i = Intent(context, OverlayService::class.java).setAction(ACTION_BANNER)
+                .putExtra(EXTRA_TITLE, title).putExtra(EXTRA_TEXT, text)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(i)
+            else context.startService(i)
+        }
+
+        fun sendBreaking(context: Context, title: String, text: String) {
+            val i = Intent(context, OverlayService::class.java).setAction(ACTION_BREAKING)
                 .putExtra(EXTRA_TITLE, title).putExtra(EXTRA_TEXT, text)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(i)
             else context.startService(i)

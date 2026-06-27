@@ -96,9 +96,13 @@ private fun notifAccessEnabled(context: android.content.Context): Boolean {
     return flat.split(":").any { it.startsWith(context.packageName + "/") }
 }
 
+/** True if any TTS engine (the sideloaded Portal TTS engine or a generic one) is installed. */
+private fun ttsInstalled(context: android.content.Context): Boolean = Speaker.engineAvailable(context)
+
 private enum class Tab(val glyph: String, val label: String) {
     WIDGETS("W", "Widgets"),
     NOW_PLAYING("NP", "Now Playing"),
+    SCREENSAVER("Z", "Screensaver"),
     STRIP("S", "Status strip"),
     TICKER("T", "Ticker"),
     SETTINGS("G", "Settings"),
@@ -187,6 +191,7 @@ private fun Deck() {
                 when (tab) {
                     Tab.WIDGETS -> WidgetsTab(prefs, accent, ::syncWidgets)
                     Tab.NOW_PLAYING -> NowPlayingTab(prefs, accent, ::syncWidgets)
+                    Tab.SCREENSAVER -> ScreensaverTab(context, prefs, accent)
                     Tab.STRIP -> StripTab(prefs, accent, ::refresh)
                     Tab.TICKER -> TickerTab(prefs, accent, ::syncTicker)
                     Tab.SETTINGS -> SettingsTab(prefs, accent, ::refresh)
@@ -591,6 +596,137 @@ private fun NowPlayingTab(prefs: Prefs, accent: Color, syncWidgets: () -> Unit) 
 }
 
 @Composable
+private fun ScreensaverTab(context: android.content.Context, prefs: Prefs, accent: Color) {
+    Section(
+        "Survive the screen saver",
+        "A floating overlay is hidden the moment the screen saver starts — Android draws the saver on top. " +
+            "This screensaver re-hosts the now-playing card, the bouncing-bars equaliser and a clock so they " +
+            "stay on-screen. Pick it as the device screensaver below."
+    ) {
+        var bg by remember { mutableStateOf(prefs.screensaverBackground) }
+        var webUrl by remember { mutableStateOf(prefs.screensaverWebUrl) }
+        var photoUri by remember { mutableStateOf(prefs.screensaverPhotoUri) }
+        var showClock by remember { mutableStateOf(prefs.screensaverShowClock) }
+        var showBattery by remember { mutableStateOf(prefs.screensaverShowBattery) }
+        var showNp by remember { mutableStateOf(prefs.screensaverShowNowPlaying) }
+        var keepBright by remember { mutableStateOf(prefs.screensaverKeepBright) }
+
+        val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+            if (uri != null) {
+                runCatching {
+                    context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                photoUri = uri.toString(); prefs.screensaverPhotoUri = photoUri
+            }
+        }
+
+        Text("Background", color = MUTED, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp, bottom = 2.dp))
+        val backgrounds = Prefs.SCREENSAVER_BACKGROUNDS
+        Segmented(
+            backgrounds.map { it.second },
+            backgrounds.indexOfFirst { it.first == bg }.coerceAtLeast(0),
+            accent
+        ) { bg = backgrounds[it].first; prefs.screensaverBackground = bg }
+        Text(
+            "Black is simplest. Photo shows a still image you pick. Web page embeds any URL — e.g. an " +
+                "Immich Kiosk feed — so you keep your photo source behind the now-playing card.",
+            color = MUTED, fontSize = 13.sp
+        )
+
+        if (bg == "web") {
+            Field("Web page URL", webUrl, "https://immich.example.com/kiosk") {
+                webUrl = it; prefs.screensaverWebUrl = it
+            }
+        }
+        if (bg == "photo") {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (photoUri.isBlank()) "No photo chosen" else "Photo selected",
+                    color = if (photoUri.isBlank()) FAINT else OK, fontSize = 14.sp, modifier = Modifier.weight(1f)
+                )
+                Ghost("Choose photo") {
+                    runCatching { photoPicker.launch(arrayOf("image/*")) }
+                        .onFailure { OverlayService.sendBanner(context, "No picker", "This Portal has no file picker; use a Web page or Black background.") }
+                }
+            }
+        }
+
+        Toggle("Show clock & date", showClock, accent) { showClock = it; prefs.screensaverShowClock = it }
+        Toggle("Show battery", showBattery, accent) { showBattery = it; prefs.screensaverShowBattery = it }
+        Toggle("Show now playing", showNp, accent) { showNp = it; prefs.screensaverShowNowPlaying = it }
+        if (showNp) {
+            var npLayout by remember { mutableStateOf(prefs.screensaverNowPlayingLayout) }
+            var vizStyle by remember { mutableStateOf(prefs.screensaverVisualizerStyle) }
+            var reactive by remember { mutableStateOf(prefs.screensaverSoundReactive) }
+            val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+            Text("Now-playing style", color = MUTED, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
+            val layouts = Prefs.SCREENSAVER_NP_LAYOUTS
+            Segmented(layouts.map { it.second }, layouts.indexOfFirst { it.first == npLayout }.coerceAtLeast(0), accent) {
+                npLayout = layouts[it].first; prefs.screensaverNowPlayingLayout = npLayout
+            }
+            Text(
+                "Card = a compact bar over your background. Cover = fullscreen album art with a big " +
+                    "music visualizer behind it (replaces the background while playing).",
+                color = MUTED, fontSize = 13.sp
+            )
+            if (npLayout == "cover") {
+                Text("Visualizer", color = MUTED, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
+                val vizzes = Prefs.NOW_PLAYING_VISUALIZERS
+                Segmented(vizzes.map { it.second }, vizzes.indexOfFirst { it.first == vizStyle }.coerceAtLeast(0), accent) {
+                    vizStyle = vizzes[it].first; prefs.screensaverVisualizerStyle = vizStyle
+                }
+            }
+            Toggle("React to live audio (experimental)", reactive, accent) {
+                reactive = it; prefs.screensaverSoundReactive = it
+                if (it) micLauncher.launch("android.permission.RECORD_AUDIO")
+            }
+            Text(
+                "Drives the visualizer from the microphone (it hears the room). On Portal the mic is shared " +
+                    "with the always-on assistant, so reaction can be laggy — leave off for the smooth " +
+                    "animated visualizer, which already plays whenever music is playing.",
+                color = MUTED, fontSize = 13.sp
+            )
+        }
+        Toggle("Keep screen bright", keepBright, accent) { keepBright = it; prefs.screensaverKeepBright = it }
+        if (!notifAccessEnabled(context)) Text(
+            "Tip: the now-playing card needs notification access (enable it on the Now Playing tab).",
+            color = MUTED, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp)
+        )
+        Primary("Preview screensaver", accent) {
+            runCatching {
+                context.startActivity(Intent(context, ScreensaverPreviewActivity::class.java))
+            }
+        }
+        Text("Shows exactly what the screen saver will — play something to see the now-playing. Tap to close.",
+            color = MUTED, fontSize = 13.sp)
+    }
+
+    Section("Make it the screensaver", "Easiest: run set_screensaver.bat from a PC (handles everything below). Or do it here.") {
+        Primary("Open screensaver settings", accent) {
+            runCatching { context.startActivity(Intent("android.settings.DREAM_SETTINGS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                .onFailure { OverlayService.sendBanner(context, "No settings screen", "This Portal hides the screensaver picker — use the adb command instead.") }
+        }
+        Text(
+            "If the picker isn't available on your Portal, set it over adb (this also replaces the " +
+                "Immortal screensaver — point the Background above at your Immich Kiosk URL to keep that feed):",
+            color = MUTED, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+        )
+        Code(
+            "adb shell settings put secure screensaver_components " +
+                "com.portal.overlays/.NowPlayingDreamService\n" +
+                "adb shell settings put secure screensaver_enabled 1"
+        )
+        Text(
+            "Already running the Immortal launcher? It re-asserts its own screensaver on boot and on " +
+                "every return home, which would evict this one. Stop that first by revoking its " +
+                "secure-settings access, then run the commands above:",
+            color = MUTED, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp, bottom = 4.dp)
+        )
+        Code("adb shell pm revoke com.immortal.launcher android.permission.WRITE_SECURE_SETTINGS")
+    }
+}
+
+@Composable
 private fun SettingsTab(prefs: Prefs, accent: Color, refresh: () -> Unit) {
     Section("Weather location", "Set the city used by the Weather widget and the status strip.") {
         var city by remember { mutableStateOf(prefs.weatherCity) }
@@ -668,6 +804,21 @@ private fun NowPlayingControls(prefs: Prefs, accent: Color, refresh: () -> Unit)
         Toggle("Show progress & track length", progress, accent) {
             progress = it; prefs.nowPlayingShowProgress = it; refresh()
         }
+        val context = LocalContext.current
+        var reactive by remember { mutableStateOf(prefs.nowPlayingSoundReactive) }
+        val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+        Toggle("React to live audio (experimental)", reactive, accent) {
+            reactive = it; prefs.nowPlayingSoundReactive = it
+            if (it) micLauncher.launch("android.permission.RECORD_AUDIO")
+            refresh()
+        }
+        Text(
+            "Drives the visualizer from the microphone (it hears the music in the room). Needs mic " +
+                "permission. Note: on Portal the mic is shared with the always-on assistant, so reaction " +
+                "can be laggy/choppy — leave this off for the smooth animated visualizer.",
+            color = MUTED, fontSize = 13.sp
+        )
+        Text("Visualizer", color = MUTED, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp))
         val visualizers = Prefs.NOW_PLAYING_VISUALIZERS
         Segmented(
             visualizers.map { it.second },
@@ -689,6 +840,11 @@ private fun NowPlayingControls(prefs: Prefs, accent: Color, refresh: () -> Unit)
             refresh()
         }
         Text("Off = starts as a small bubble you tap to expand.", color = MUTED, fontSize = 13.sp)
+        Primary("Preview now playing", accent) {
+            OverlayService.send(context, OverlayService.ACTION_PREVIEW_NOW_PLAYING)
+        }
+        Text("Opens the full now-playing card so you can try visualizer styles and layouts. Needs " +
+            "\"Draw over other apps\". Tap × to close.", color = MUTED, fontSize = 13.sp)
     }
 }
 
@@ -830,6 +986,38 @@ private fun NotifyTab(context: android.content.Context, prefs: Prefs, accent: Co
         }
         Primary("Test banner", accent) { OverlayService.send(context, OverlayService.ACTION_TEST_BANNER) }
     }
+    Section("🔴  Breaking news", "Urgent ntfy messages (priority 5, or a \"breaking\"/\"urgent\" tag) flash a full-attention popup and read the headline aloud.") {
+        var on by remember { mutableStateOf(prefs.breakingNewsEnabled) }
+        var speak by remember { mutableStateOf(prefs.breakingNewsSpeak) }
+        var secs by remember { mutableStateOf(prefs.breakingNewsSeconds.toFloat()) }
+        var vol by remember { mutableStateOf(prefs.breakingNewsVolume.toFloat()) }
+        Toggle("Enable breaking-news popups", on, accent) { on = it; prefs.breakingNewsEnabled = it }
+        if (on) {
+            Toggle("Read the headline aloud (TTS)", speak, accent) { speak = it; prefs.breakingNewsSpeak = it }
+            if (speak && !ttsInstalled(context)) Text(
+                "No speech engine detected — the popup still flashes and chimes, just silently. " +
+                    "Install the Portal TTS engine (com.k2fsa.sherpa.onnx.tts.engine) to enable spoken alerts.",
+                color = MUTED, fontSize = 13.sp
+            )
+            if (speak) SliderRow("TTS volume", "${vol.toInt()}%", vol, 0f..100f, accent) {
+                vol = it; prefs.breakingNewsVolume = it.toInt()
+            }
+            SliderRow("On-screen time", "${secs.toInt()}s", secs, 4f..30f, accent) {
+                secs = it; prefs.breakingNewsSeconds = it.toInt()
+            }
+            val host = prefs.ntfyServer.ifBlank { "https://ntfy.sh" }
+                .removePrefix("https://").removePrefix("http://").trimEnd('/')
+            Code("curl -H \"Priority: urgent\" -H \"Tags: breaking\" -d \"Your headline\" $host/${prefs.topic.ifBlank { "your-topic" }}")
+            Spacer(Modifier.height(6.dp))
+            Primary("Test breaking news", accent) {
+                OverlayService.sendBreaking(
+                    context,
+                    "This is a test of the breaking-news alert system",
+                    "Triggered from the Overlays settings panel."
+                )
+            }
+        }
+    }
     Section("Mirror app notifications", "Show other apps' notifications (WhatsApp, Messenger, email...) as banners.") {
         var on by remember { mutableStateOf(prefs.mirrorNotifications) }
         var skip by remember { mutableStateOf(prefs.mirrorSkipOngoing) }
@@ -891,6 +1079,13 @@ private fun NavTab(context: android.content.Context, prefs: Prefs, accent: Color
             Segmented(listOf("Horizontal", "Vertical"), if (vert) 1 else 0, accent) {
                 vert = it == 1; prefs.navVertical = it == 1; refresh()
             }
+            var posLocked by remember { mutableStateOf(prefs.navLocked) }
+            Toggle("Lock position", posLocked, accent) { posLocked = it; prefs.navLocked = it; refresh() }
+            Text(
+                "Pins the cluster where you've placed it so it can't be dragged by accident. The buttons " +
+                    "still work — turn this off to move it again.",
+                color = MUTED, fontSize = 13.sp
+            )
         }
     }
     Section("🎛️  Button style", "Eight looks for the cluster. Tap one to apply it live.") {

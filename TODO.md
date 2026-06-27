@@ -15,6 +15,31 @@ Working tracker for release prep and follow-up work. Newest items at top.
 - **Notifications** - ntfy banners and mirrored notifications remain available; ntfy can point at a self-hosted server (custom URL + optional access token) to keep messages private.
 
 ## Shipped work
+- [x] Screensaver / DreamService (Unreleased) — PO ships its own screen saver (`NowPlayingDreamService`
+      + shared `ScreensaverScene`) because a running dream composites over `TYPE_APPLICATION_OVERLAY`,
+      hiding floating overlays. Re-hosts the now-playing card (cover, track, bouncing bars), clock/date
+      and battery over a chosen background: **Black / Photo / Web page** (e.g. an Immich Kiosk URL).
+      Reads media sessions via the existing notif-listener; `isRealMedia` filters the idle Alexa
+      session. Battery line auto-hides on mains-powered Portals (no battery → no "0%"). Activation via
+      system picker or `set_screensaver.bat` (also revokes Immortal's `WRITE_SECURE_SETTINGS` so it
+      stops reclaiming the slot; `-Revert`/`-KeepImmortal`). New Screensaver tab.
+- [x] Fullscreen "Cover" screensaver (Unreleased) — now-playing layout = Card (compact bar over the
+      background) or **Cover** (full-bleed visualizer + large album art + source-app icon + track +
+      progress). Visualizer style picker. Device-verified on Portal+.
+- [x] Spectrum visualizer + smooth animation (Unreleased) — new high-quality **Spectrum** style
+      (mirrored bars + reflection) on `NowPlayingVisualizerView`, joining Waves/Rings/Constellation/
+      Prism; animates whenever a media session is playing. Source-app icon added to the now-playing
+      card. View-side eased `display[]` smoothing.
+- [x] Live-audio reactor — experimental, OFF by default (Unreleased) — `SoundReactor` (mic +
+      Goertzel filter bank). True audio reaction is **not viable on Portal**: `Visualizer(0)` (output
+      mix) is blocked (`initCheck -3`, needs privileged `CAPTURE_AUDIO_OUTPUT`), and the mic is
+      preempted by Portal's always-on assistant → laggy. See `docs/portal-audio-capture.md`. Kept as a
+      guarded opt-in (self-disables → synthetic fallback). `RECORD_AUDIO` added.
+- [x] Preview buttons (Unreleased) — `ScreensaverPreviewActivity` (hosts the shared `ScreensaverScene`)
+      previews the screen saver in-app, independent of the real idle screen; `ACTION_PREVIEW_NOW_PLAYING`
+      opens the full now-playing card. Buttons on the Screensaver + Now Playing tabs.
+- [x] Lock nav position (Unreleased) — closes issue #2. `makeDraggable` gained a `locked` gate that
+      skips `ACTION_MOVE` (taps still work); "Lock position" toggle on the Navigation tab.
 - [x] Self-hosted ntfy (v1.6) — Notifications tab gained an "ntfy server" section. `NtfyClient` now
       takes a base server URL (scheme-normalised, trailing-slash trimmed) and an optional access token
       sent as an `Authorization: Bearer` header, so a self-hosted instance and read-protected/private
@@ -87,6 +112,51 @@ Working tracker for release prep and follow-up work. Newest items at top.
 - [x] Centered and Poster layouts made visually distinct
 - [x] Status strip defaults seeded to the requested bottom-edge setup
 - [x] Startup defaults flipped so Clock is off and Now Playing is on
+
+## Roadmap — build these (agreed 2026-06-27, "build all of it")
+
+Ordered roughly by impact-to-effort. Tackle top-down; check items off as shipped.
+
+### A. Now Playing / visualizer
+- [ ] **Album-art colour tinting** (do first — high impact, low risk). Extract a dominant/vibrant
+      colour from the cover (androidx Palette) and auto-tint the accent + visualizer per track, on the
+      now-playing card, cover screensaver and dock. Fallback to the user's accent when no art.
+- [ ] More visualizer styles: particle bloom, oscilloscope waveform, radial/circular spectrum,
+      vinyl/album-spin, kinetic "now playing" type. Add to `NOW_PLAYING_VISUALIZERS` + draw scenes.
+- [ ] Seek on the progress bar (drag to scrub via `transportControls.seekTo`); like/favourite if the
+      session exposes a custom action; queue peek (next track) when available.
+
+### B. Screensaver
+- [ ] Multiple photo sources + slideshow: folder, Immich album, Unsplash; Ken-Burns slow pan; interval.
+      Generalises the single `screensaverPhotoUri`.
+- [ ] Clock faces for the idle screen: analog, flip, word-clock, minimal; position + size options.
+      (Can borrow Immortal's clock-face approach.)
+- [ ] Schedule / night behaviour: auto-dim at night, true-black anti-burn-in layout, different
+      layout/visualizer day vs night, quiet hours.
+- [ ] Weather / agenda / next-event line on the idle screen (reuse `WeatherClient` + `CalendarClient`).
+
+### C. Status strip / nav / widgets
+- [ ] Lock **all** overlays (generalise the new nav lock to every draggable; one "Lock layout" switch).
+- [ ] Snap-to-edge + magnetic alignment for dragged widgets; per-widget opacity + scale.
+- [ ] Strip profiles you can switch between (Home / Work / Night) — saved sets of strip + widget config.
+
+### D. Plumbing / quality
+- [ ] In-app setup wizard that runs the adb grants via a QR-to-PC flow (overlay/accessibility/notif/
+      mic/screensaver), so users don't hand-run scripts.
+- [ ] Backup / restore settings (export/import JSON) + per-device profiles.
+
+### E. New surfaces (from scratch)
+- [ ] **Home-dashboard mode**: a full-screen tappable dashboard (clock + weather + agenda + media +
+      quick toggles) as an alternative to floating overlays. Reuse the screensaver engine.
+- [ ] **Smart-home panel**: Home Assistant / MQTT tiles (borrow Immortal's MQTT pattern).
+- [ ] **LAN intercom / quick-message** between Portals (borrow Immortal's `LanAudio` / `PingService`).
+- [ ] **Photo-frame app** proper, reusing the screensaver scene.
+- [ ] **Voice / quick-command bar** using the sideloaded TTS engine for spoken alerts + agenda.
+- [ ] **Routines**: a small rules engine ("at sunset → Night strip + dim screensaver").
+
+### Decisions to confirm next session
+- [ ] Keep the experimental live-audio reactor (off by default) or remove the toggle entirely?
+- [ ] Version bump + release build for the Unreleased screensaver/visualizer/lock-nav work.
 
 ## Next up
 - [ ] Shuffle / repeat on Now Playing — removed for now: the framework `setShuffleMode`/`setRepeatMode`

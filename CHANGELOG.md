@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7] - 2026-06-27
+
+### Added
+- **Lock nav position** (issue #2) - a **Lock position** toggle on the Navigation page pins the
+  floating nav cluster where you've placed it so it can't be dragged by accident. The buttons keep
+  working; turn the lock off to move it again.
+- **New high-quality Spectrum visualizer** - a mirrored bar spectrum with a reflection joins Waves /
+  Rings / Constellation / Prism, on both the full now-playing card and the screensaver. The visualizer
+  animates whenever music is playing (it knows from the media session), so it's lively and smooth.
+- **Live-audio reactor (experimental, off by default)** - an optional **React to live audio** toggle
+  drives the visualizer from the microphone (it hears the music in the room) via a small Goertzel
+  filter bank. The clean route — tapping the audio output mix with `Visualizer` — is blocked on Portal
+  (it needs a privileged permission a sideloaded app can't hold), and the mic is shared with Portal's
+  always-on assistant, so reaction can be laggy. It's therefore opt-in and clearly labelled; the
+  smooth animated visualizer is the default.
+- **Fullscreen "Cover" screensaver** - the screensaver's now-playing can now be a **Cover** layout:
+  fullscreen album art with the chosen music visualizer filling the screen behind it, the source-app
+  icon, track / artist and progress - the same rich look as the in-app full card, on the idle screen.
+  Pick **Card** (compact bar over your background) or **Cover** on the Screensaver tab, plus the
+  visualizer style and the live-audio toggle. The now-playing card now also shows the **source-app
+  icon** (e.g. the Spotify logo) next to the track.
+- **Screensaver that survives the screen saver** - a floating overlay is hidden the instant a screen
+  saver / Daydream starts, because Android composites the saver on top of every app overlay (the
+  highest window type a sideloaded app may use). Portal Overlays now ships its own **screensaver**
+  (a `DreamService`) that re-hosts the content people most want on the idle screen: the **Now Playing
+  card** with cover art, track/artist and the **bouncing-bars equaliser**, plus a large **clock/date**
+  and **battery** readout. Because it *is* the screen saver, it stays on-screen the whole time.
+  New **Screensaver** page lets you choose the background — **Black**, a **Photo** you pick, or a
+  **Web page** URL (e.g. an Immich Kiosk feed, so you keep your photo source behind the now-playing
+  card) — toggle the clock / battery / now-playing / keep-bright options, and set it as the device
+  screensaver (system picker button, with an `adb` fallback for Portals that hide the picker). The
+  now-playing card reads media sessions directly through the existing notification-listener access and
+  filters out the Portal's idle Alexa session, so it only appears while real audio is actually playing.
+- **`set_screensaver.bat` helper** - a one-step PC script (mirroring `enable_portal_permissions`) that
+  auto-detects the Portal, registers the screensaver, allows the notification listener the now-playing
+  card needs, and - if the Immortal launcher is installed - stops it from reclaiming the screensaver
+  slot on boot / return-home (it re-asserts its own otherwise). `-Revert` hands the screensaver back;
+  `-KeepImmortal` registers without touching Immortal. The battery line auto-hides on mains-powered
+  Portals (e.g. the Portal+) that report no battery, rather than showing a misleading "0%".
+- **Breaking-news alerts** - urgent ntfy messages now get a full-attention treatment instead of a
+  normal banner: a flashing red **BREAKING NEWS** popup with a strobing eyebrow and pulsing dot, a
+  chime + haptics, and a spoken read-out of the headline. A message qualifies as "breaking" when it
+  arrives with ntfy **priority 5** (`-H "Priority: urgent"`) or a **`breaking`** / **`urgent`** tag
+  (`-H "Tags: breaking"`). New **Breaking news** section on the Notifications page toggles the popups,
+  toggles the spoken read-out, sets the on-screen time, shows a ready-to-paste `curl` example, and has
+  a **Test breaking news** button.
+- **Spoken alerts (TTS)** - the headline is read aloud through the device text-to-speech engine,
+  preferring the sideloaded **Portal TTS engine** (`com.k2fsa.sherpa.onnx.tts.engine`, Sherpa-ONNX)
+  when installed and falling back to any generic engine. Portals with **no** TTS engine installed are
+  fully supported: the popup still flashes and chimes, just silently, and the settings page flags that
+  no speech engine was detected.
+
 ## [1.6] - 2026-06-26
 
 ### Added

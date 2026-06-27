@@ -104,6 +104,45 @@ class Prefs(context: Context) {
     /** Show the playback progress bar and elapsed/total time on the full now-playing card. */
     var nowPlayingShowProgress: Boolean
         get() = bool("nowPlayingShowProgress", true); set(v) = setBool("nowPlayingShowProgress", v)
+    /** Drive the full-card visualizer from live audio (Visualizer API) instead of a synthetic animation. */
+    var nowPlayingSoundReactive: Boolean
+        get() = bool("nowPlayingSoundReactive", false); set(v) = setBool("nowPlayingSoundReactive", v)
+
+    // ---- screensaver (DreamService) --------------------------------------
+    // The on-device screensaver Portal Overlays provides. Unlike the floating overlays (which a
+    // running screensaver/dream composites over and hides), a dream draws ON the idle screen, so the
+    // now-playing card + clock survive when the screen saver kicks in. The user picks this as the
+    // device screensaver; see the Screensaver tab for activation.
+    /** Background drawn behind the screensaver content: "black", "photo" or "web". */
+    var screensaverBackground: String
+        get() = str("screensaverBackground", "black"); set(v) = setStr("screensaverBackground", v)
+    /** Web page URL used when the background is "web" (e.g. an Immich Kiosk page). */
+    var screensaverWebUrl: String
+        get() = str("screensaverWebUrl", ""); set(v) = setStr("screensaverWebUrl", v.trim())
+    /** content:// URI of the still image used when the background is "photo". */
+    var screensaverPhotoUri: String
+        get() = str("screensaverPhotoUri", ""); set(v) = setStr("screensaverPhotoUri", v.trim())
+    /** Show the large clock + date on the screensaver. */
+    var screensaverShowClock: Boolean
+        get() = bool("screensaverShowClock", true); set(v) = setBool("screensaverShowClock", v)
+    /** Show the battery level on the screensaver. */
+    var screensaverShowBattery: Boolean
+        get() = bool("screensaverShowBattery", true); set(v) = setBool("screensaverShowBattery", v)
+    /** Show the now-playing card (cover, title/artist, bouncing bars) on the screensaver. */
+    var screensaverShowNowPlaying: Boolean
+        get() = bool("screensaverShowNowPlaying", true); set(v) = setBool("screensaverShowNowPlaying", v)
+    /** Screensaver now-playing presentation: "card" (floating bar) or "cover" (fullscreen art + visualizer). */
+    var screensaverNowPlayingLayout: String
+        get() = str("screensaverNowPlayingLayout", "card"); set(v) = setStr("screensaverNowPlayingLayout", v)
+    /** Visualizer style behind the fullscreen "cover" now-playing on the screensaver. */
+    var screensaverVisualizerStyle: String
+        get() = str("screensaverVisualizerStyle", "spectrum"); set(v) = setStr("screensaverVisualizerStyle", v)
+    /** Drive the screensaver visualizer from the live mic (experimental; laggy on Portal's shared mic). */
+    var screensaverSoundReactive: Boolean
+        get() = bool("screensaverSoundReactive", false); set(v) = setBool("screensaverSoundReactive", v)
+    /** Keep the display bright while the screensaver is showing (so it truly stays on-screen). */
+    var screensaverKeepBright: Boolean
+        get() = bool("screensaverKeepBright", true); set(v) = setBool("screensaverKeepBright", v)
 
     // ---- sticky note widget ----------------------------------------------
     var noteEnabled: Boolean
@@ -174,6 +213,23 @@ class Prefs(context: Context) {
     var bannerPosition: String
         get() = str("bannerPosition", "top"); set(v) = setStr("bannerPosition", v)
 
+    // ---- breaking news ----------------------------------------------------
+    /** Route high-priority ntfy messages (priority 5, or a "breaking"/"urgent" tag) to a flashing
+     *  full-attention popup instead of a normal banner. */
+    var breakingNewsEnabled: Boolean
+        get() = bool("breakingNewsEnabled", true); set(v) = setBool("breakingNewsEnabled", v)
+    /** Read the headline aloud through the device TTS engine (prefers the sideloaded Portal TTS
+     *  engine; silent fallback when no engine is installed). */
+    var breakingNewsSpeak: Boolean
+        get() = bool("breakingNewsSpeak", true); set(v) = setBool("breakingNewsSpeak", v)
+    /** How long the breaking-news popup stays on screen, in seconds. */
+    var breakingNewsSeconds: Int
+        get() = int("breakingNewsSeconds", 9); set(v) = setInt("breakingNewsSeconds", v.coerceIn(4, 30))
+    /** TTS read-out volume for the breaking-news headline, as a percent of the stream volume (0-100).
+     *  Maps to the engine KEY_PARAM_VOLUME param (0.0-1.0). */
+    var breakingNewsVolume: Int
+        get() = int("breakingNewsVolume", 100); set(v) = setInt("breakingNewsVolume", v.coerceIn(0, 100))
+
     // ---- alerts -----------------------------------------------------------
     var alertVibrate: Boolean
         get() = bool("alertVibrate", true); set(v) = setBool("alertVibrate", v)
@@ -228,6 +284,9 @@ class Prefs(context: Context) {
         get() = bool("navLock", false); set(v) = setBool("navLock", v)
     var navVertical: Boolean
         get() = bool("navVertical", false); set(v) = setBool("navVertical", v)
+    /** Lock the nav cluster in place so it can't be dragged off its position until unlocked. */
+    var navLocked: Boolean
+        get() = bool("navLocked", false); set(v) = setBool("navLocked", v)
     /** Visual style of the nav cluster — see [NAV_STYLES]. */
     var navStyle: String
         get() = str("navStyle", "pill"); set(v) = setStr("navStyle", v)
@@ -282,10 +341,16 @@ class Prefs(context: Context) {
         )
 
         val NOW_PLAYING_VISUALIZERS = listOf(
+            "spectrum" to "Spectrum",
             "waves" to "Waves",
             "rings" to "Rings",
             "constellation" to "Constellation",
             "prism" to "Prism",
+        )
+
+        val SCREENSAVER_NP_LAYOUTS = listOf(
+            "card" to "Card",
+            "cover" to "Cover",
         )
         val NOW_PLAYING_LAYOUTS = listOf(
             "sidecar" to "Sidecar",
@@ -307,6 +372,12 @@ class Prefs(context: Context) {
             "small" to "Small",
             "medium" to "Medium",
             "large" to "Large",
+        )
+
+        val SCREENSAVER_BACKGROUNDS = listOf(
+            "black" to "Black",
+            "photo" to "Photo",
+            "web" to "Web page",
         )
 
         // The ticker shares STRIP_STYLES (see OverlayService.tickerStyleFor), so there's no separate list.

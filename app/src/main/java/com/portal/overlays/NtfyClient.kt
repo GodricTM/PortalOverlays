@@ -21,7 +21,7 @@ class NtfyClient(
     private val server: String = "https://ntfy.sh",
     private val token: String = "",
     private val onConnected: (Boolean) -> Unit,
-    private val onMessage: (title: String, message: String) -> Unit,
+    private val onMessage: (title: String, message: String, priority: Int, tags: List<String>) -> Unit,
 ) {
     private val running = AtomicBoolean(false)
     private var thread: Thread? = null
@@ -94,7 +94,12 @@ class NtfyClient(
             if (obj.optString("event") != "message") return
             val title = obj.optString("title", "").ifBlank { topic }
             val message = obj.optString("message", "")
-            if (message.isNotBlank() || title.isNotBlank()) onMessage(title, message)
+            // ntfy priority is 1 (min) .. 5 (max/urgent); default 3 when omitted.
+            val priority = obj.optInt("priority", 3)
+            val tags = obj.optJSONArray("tags")?.let { arr ->
+                (0 until arr.length()).map { arr.optString(it, "") }.filter { it.isNotBlank() }
+            } ?: emptyList()
+            if (message.isNotBlank() || title.isNotBlank()) onMessage(title, message, priority, tags)
         } catch (e: Exception) {
             Log.w(TAG, "bad ntfy line: ${e.message}")
         }
