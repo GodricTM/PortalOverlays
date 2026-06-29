@@ -4,6 +4,6 @@
   "package": "com.portal.overlays",
   "category": "utility",
   "models": ["portal-plus", "portal-2019", "portal-mini", "portal-go", "portal-tv"],
-  "screenshots": ["screenshots/11_home_overlays.png", "screenshots/10_now_playing_fullscreen.png", "screenshots/01_widgets.png"],
+  "screenshots": ["screenshots/portal-overlays-icon.png"],
   "minSdk": 28
 }
