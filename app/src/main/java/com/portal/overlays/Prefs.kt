@@ -143,6 +143,9 @@ class Prefs(context: Context) {
     /** Keep the display bright while the screensaver is showing (so it truly stays on-screen). */
     var screensaverKeepBright: Boolean
         get() = bool("screensaverKeepBright", true); set(v) = setBool("screensaverKeepBright", v)
+    /** One-time screensaver gesture hint toast ("Swipe art · double-tap clock") already shown. */
+    var screensaverGestureHintShown: Boolean
+        get() = bool("screensaverGestureHintShown", false); set(v) = setBool("screensaverGestureHintShown", v)
 
     // ---- sticky note widget ----------------------------------------------
     var noteEnabled: Boolean
@@ -197,6 +200,15 @@ class Prefs(context: Context) {
     /** Time until the next sunset or sunrise from Open-Meteo (e.g. "☀ 3h12m"). */
     var stripShowSun: Boolean
         get() = bool("stripShowSun", true); set(v) = setBool("stripShowSun", v)
+    /** Wind speed from Open-Meteo (e.g. "💨 12 km/h"). */
+    var stripShowWind: Boolean
+        get() = bool("stripShowWind", false); set(v) = setBool("stripShowWind", v)
+    /** UV index from Open-Meteo (e.g. "UV 6"). */
+    var stripShowUv: Boolean
+        get() = bool("stripShowUv", false); set(v) = setBool("stripShowUv", v)
+    /** Severe-weather alert when WMO code is thunder/hail (e.g. "⛈ alert"). */
+    var stripShowWeatherAlert: Boolean
+        get() = bool("stripShowWeatherAlert", false); set(v) = setBool("stripShowWeatherAlert", v)
     /** Next calendar event from the iCal feed (e.g. "Standup · in 25m"). Needs a calendar URL. */
     var stripShowAgenda: Boolean
         get() = bool("stripShowAgenda", false); set(v) = setBool("stripShowAgenda", v)
@@ -287,6 +299,12 @@ class Prefs(context: Context) {
     /** Lock the nav cluster in place so it can't be dragged off its position until unlocked. */
     var navLocked: Boolean
         get() = bool("navLocked", false); set(v) = setBool("navLocked", v)
+    /** User dismissed the post-boot "nav won't work" overlay until the next reboot. */
+    var navWarningDismissed: Boolean
+        get() = bool("navWarningDismissed", false); set(v) = setBool("navWarningDismissed", v)
+    /** BootReceiver couldn't re-write enabled_accessibility_services (needs adb). */
+    var accessibilityBootRestoreFailed: Boolean
+        get() = bool("accessibilityBootRestoreFailed", false); set(v) = setBool("accessibilityBootRestoreFailed", v)
     /** Visual style of the nav cluster — see [NAV_STYLES]. */
     var navStyle: String
         get() = str("navStyle", "pill"); set(v) = setStr("navStyle", v)

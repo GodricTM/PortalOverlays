@@ -59,6 +59,50 @@ A floating HUD for sideloaded Meta Portal devices. Draws widgets, banners, mirro
 - **Narrow update paths** so ticker changes restart only the ticker, while simple widget toggles do
   not tear down the entire overlay stack
 
+### Coming in the next release (built, not tagged yet)
+
+These ship in current `main` / debug builds but are not yet a numbered GitHub release:
+
+- **Full-height control deck** — every settings tab uses the whole content area (compact running /
+  permission bar + scrollable sections)
+- **Settings search** — tap **Search settings…** in the left rail for a full-panel browser: ranked
+  section results, keyword chips, popular searches (`screensaver`, `ntfy`, `edge bar`, …), and
+  browse-by-tab catalog; tap a result to open that tab
+- **Screensaver remote control** — tap album art to skip, swipe for prev/next, double-tap the clock
+  to wake; one-time gesture hint toast on first real idle
+- **Track history** — **History** on the full now-playing card: last ~20 tracks with cover thumbnails
+  and timestamps (local only); album art crossfades on track change
+- **Status strip weather extras** — optional wind, UV, and severe-weather alert lines (Open-Meteo)
+- **Finance watchlists** — `finance:crypto:BTC,ETH` and `finance:stocks:AAPL,TSLA` ticker URLs
+- **Seek-jump visualizer** — visualizer pulse when playback skips >5s (no mic)
+- **Vector transport buttons** — skip / play / pause icons on full card and dock shapes
+- **Strip taps** — foreground app menu; ntfy last-message preview
+- **Widget safe zones** — drag widgets away from strip/ticker/chrome; soft collision nudging
+- **Post-boot nav banner** — warns when accessibility restore failed after reboot
+- **Labs** — live-audio reactor under **Settings → Labs** (off by default)
+
+See [release/UNRELEASED.md](release/UNRELEASED.md) and the `[Unreleased]` section of [CHANGELOG.md](CHANGELOG.md).
+
+## Control panel
+
+Open **Portal Overlays** on the Portal to configure everything. Ten tabs in the left rail:
+
+| Tab | What it controls |
+|-----|------------------|
+| Widgets | Clock, weather, battery, note, agenda |
+| Now Playing | Dock shape, visualizer, full card, history |
+| Screensaver | Dream background, cover layout, gestures |
+| Status strip | Style, weather extras, foreground app, ntfy |
+| Ticker | RSS/finance feeds, scroll speed |
+| Settings | Weather city/units, Labs |
+| Notifications | ntfy, mirror, breaking news, sounds |
+| Navigation | Floating nav, styles, lock position |
+| Appearance | Accent, opacity, corners, text scale |
+| About | Permissions, updates |
+
+**Search:** use **Search settings…** at the top of the rail (or focus it to browse all sections).
+Results open in the main panel with descriptions and keyword tags — useful with ten tabs.
+
 ## Screenshots
 
 **Fullscreen Now Playing** — album art, source-app logo, album name, live progress / track length,
@@ -151,6 +195,10 @@ drawn over a background you choose on the **Screensaver** tab: **Black**, a **Ph
 reads media sessions through the same notification-listener access the overlays use and only appears
 while real audio is actually playing.
 
+**Gestures on the idle screen** (when now playing is shown): tap album art to skip, swipe left/right
+for prev/next, double-tap the clock to wake. The first time the real screen saver runs, a one-time
+toast reminds you: "Swipe art · double-tap clock" (the in-app Preview does not consume this hint).
+
 ### Set it as the screen saver
 
 The easiest way is the bundled helper — plug the Portal in (ADB enabled) and run, from a PC:
@@ -189,9 +237,10 @@ To keep your Immich Kiosk feed, set the Screensaver background to **Web page** a
 Kiosk URL — you get the photo feed *and* the bouncing-bars now-playing on top, both surviving the
 screen saver.
 
-The visualizer animates whenever music is playing. A **React to live audio** option exists but is
-experimental and off by default — true audio reaction isn't achievable on Portal for a sideloaded app
-(the output mix is permission-locked and the mic is preempted by the always-on assistant). See
+The visualizer animates whenever music is playing. A **React to live audio** option still exists under
+**Settings → Labs** for tinkerers, but it is off by default and usually makes the visualizer look
+worse on Portal — true audio reaction isn't achievable for a sideloaded app (the output mix is
+permission-locked and the mic is preempted by the always-on assistant). See
 [`docs/portal-audio-capture.md`](docs/portal-audio-capture.md).
 
 ## ntfy

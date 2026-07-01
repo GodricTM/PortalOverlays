@@ -17,6 +17,7 @@ class BootReceiver : BroadcastReceiver() {
             intent?.action != "android.intent.action.QUICKBOOT_POWERON" &&
             intent?.action != "com.htc.intent.action.QUICKBOOT_POWERON") return
 
+        val prefs = Prefs(context)
         try {
             val resolver = context.contentResolver
             val our = "${context.packageName}/${context.packageName}.NavAccessibilityService"
@@ -27,13 +28,16 @@ class BootReceiver : BroadcastReceiver() {
                 Settings.Secure.putString(resolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, updated)
                 Settings.Secure.putInt(resolver, Settings.Secure.ACCESSIBILITY_ENABLED, 1)
             }
+            prefs.accessibilityBootRestoreFailed = false
         } catch (_: SecurityException) {
             // WRITE_SECURE_SETTINGS is signature/privileged; adb shell has it but a regular
             // app does not. The setting still gets restored by enable_portal_permissions.ps1
             // on the next adb session, so this is a best-effort attempt.
+            prefs.accessibilityBootRestoreFailed = true
+            prefs.navWarningDismissed = false
         }
 
-        if (Prefs(context).serviceEnabled) {
+        if (prefs.serviceEnabled) {
             OverlayService.send(context, OverlayService.ACTION_REFRESH)
         }
     }

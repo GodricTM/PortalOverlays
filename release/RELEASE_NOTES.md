@@ -1,40 +1,41 @@
-# Portal Overlays v1.6 release
+# Portal Overlays v1.8 release
 
-A big Now Playing update — three dock shapes that come and go with playback — plus more status-strip
-styles, an agenda/calendar widget, finance ticker sources, and a steadier status strip.
-
-![The new Now Playing page — dock shapes (Bubble / Strip / Edge bar), edge-bar position, and auto-hide](https://github.com/GodricTM/PortalOverlays/releases/download/v1.6/02_now_playing.png)
+The screensaver becomes a remote control, the now-playing card gains track history and smoother art,
+and the control deck gets a full settings search — plus status-strip weather extras, finance
+watchlists, and a batch of Now Playing and strip polish.
 
 ## What's in this release
 
-- **Now Playing dock shapes**: choose how the docked widget looks — a small cover-art **Bubble**
-  (four styles: Rounded, Circle, Square, Minimal; three sizes), a floating **Strip** (cover art,
-  title, artist, slim progress bar, play/pause), or a full-width **Edge bar** pinned to the top or
-  bottom. Tapping any of them still opens the full card.
-- **Edge bar controls & extras**: the edge bar shows the source-app logo, a mini equaliser that
-  pulses while playing, previous / play-pause / next transport buttons, and (with "Show progress &
-  track length" on) elapsed / total time around the progress bar.
-- **Auto-hide when idle**: every Now Playing dock now shows only while audio is actually playing and
-  fades out the moment you pause, stop, or close the player. It ignores always-on / stale media
-  sessions — the Portal's built-in Alexa runtime and players left paused after they're closed — so
-  they no longer keep the widget pinned on screen. Toggle with "Hide when nothing is playing".
-- **19 status-strip styles**: Dense Dark, Accented, Three Zones, Segments, Minimal Mono, Two Rows,
-  Frosted Glass, Tinted Chips, Aurora, Daylight, HUD Tactical, Sunset, Ocean, Mono Graphite, OLED
-  Black, E-ink Paper, Iconic, High Contrast, and a dynamic Sky gradient.
-- **Agenda / calendar widget**: a draggable card listing the next few events from a public iCalendar
-  (`.ics` / webcal) feed, plus an optional next-event line on the status strip.
-- **Finance ticker sources**: the bottom ticker can scroll live crypto prices (CoinGecko) or stock
-  quotes (Stooq) alongside the existing news feeds.
-- **Self-hosted ntfy**: point Portal Overlays at your own ntfy server (custom URL, plus an optional
-  access token for private/read-protected topics) instead of the public ntfy.sh, to keep messages on
-  your own server. Defaults are unchanged.
-- **Steadier status strip**: the live network-speed readout now sits in a fixed-width slot, so its
-  per-second updates no longer shove the rest of the strip left and right.
+- **Screensaver as a remote** — on the idle/dream screen: **tap** album art to skip, **swipe**
+  left/right for prev/next, **double-tap** the clock to wake the device. A one-time hint toast
+  ("Swipe art · double-tap clock") shows the first time the real screen saver starts.
+- **Track history** — the full now-playing card logs the last ~20 tracks locally (cover thumbnail,
+  title, artist, relative time). Tap **History** for the list; stored on-device, no cloud.
+- **Smoother album art** — cover art **crossfades** between tracks on the full card, dock, and
+  screensaver, and stays stable during playback (no refresh flicker).
+- **Settings search** — a full-panel search in the control deck: ~40 section-level entries with
+  ranked results (tab badge, description, keyword chips), a browse-by-tab catalog, popular quick
+  chips, and inline top matches while typing. Tap a result to jump straight to that tab.
+- **Status-strip weather extras** — optional wind speed, UV index, and severe-weather alert lines
+  from the same keyless Open-Meteo poll (no new API key).
+- **Finance ticker watchlists** — custom symbols in the ticker feed URL:
+  `finance:crypto:BTC,ETH,SOL` or `finance:stocks:AAPL,TSLA,NVDA`.
+- **Now Playing polish** — crisp **vector transport buttons** (prev / play-pause / next) on the full
+  card, edge bar, and strip dock, and a **seek-jump visualizer pulse** when playback position jumps
+  more than 5s (e.g. a skip from your phone) — no microphone.
+- **Strip tap actions** — tap the foreground-app line for Open / App info / Force stop; tap the ntfy
+  line for the last message preview.
+- **Widget safe zones** — draggable widgets nudge away from the strip, ticker, and edge now-playing,
+  and nudge apart when they overlap.
+- **Post-boot nav warning** — a banner if the accessibility service couldn't be restored after a
+  reboot and nav features are enabled.
+- **Labs** — the experimental **React to live audio** option moved to **Settings → Labs** (off by
+  default). See `docs/portal-audio-capture.md` for why true output-mix capture isn't viable on Portal.
 
 ## Install
 
 ```bash
-npx -y metavr app install -r PortalOverlays-v1.6-release.apk
+npx -y metavr app install -r PortalOverlays-v1.8-release.apk
 npx -y metavr app launch com.portal.overlays
 ```
 

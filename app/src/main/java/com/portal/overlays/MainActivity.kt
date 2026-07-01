@@ -63,6 +63,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -134,6 +135,8 @@ private fun Deck() {
     val context = LocalContext.current
     val prefs = remember { Prefs(context) }
     var tab by remember { mutableStateOf(Tab.WIDGETS) }
+    var searchQuery by remember { mutableStateOf("") }
+    var searchOpen by remember { mutableStateOf(false) }
     var running by remember { mutableStateOf(prefs.serviceEnabled) }
     var accent by remember { mutableStateOf(Color(prefs.accentColor)) }
     var canOverlay by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
@@ -167,13 +170,27 @@ private fun Deck() {
     fun syncTicker() { if (running) OverlayService.send(context, OverlayService.ACTION_SYNC_TICKER) }
 
     Box(Modifier.fillMaxSize()) {
-    Row(Modifier.fillMaxSize().background(BG)) {
-        Rail(tab, accent) { tab = it }
-        Column(Modifier.fillMaxSize().padding(start = 28.dp, end = 36.dp, top = 24.dp, bottom = 24.dp)) {
-            StatusHeader(
-                running = running, accent = accent,
-                canOverlay = canOverlay, accEnabled = accEnabled, hasTopic = prefs.topic.isNotBlank(),
+        Row(Modifier.fillMaxSize().background(BG)) {
+            Rail(
+                selected = tab,
+                accent = accent,
+                searchQuery = searchQuery,
+                onSearchQueryChange = { searchQuery = it; searchOpen = true },
+                onSearchOpen = { searchOpen = true },
+                onSelect = {
+                    tab = it
+                    searchOpen = false
+                    searchQuery = ""
+                },
+            )
+            TabScaffold(
+                tab = if (searchOpen || searchQuery.isNotBlank()) null else tab,
+                running = running,
+                accent = accent,
+                canOverlay = canOverlay,
+                accEnabled = accEnabled,
                 notifAccess = notifAccess,
+                hasTopic = prefs.topic.isNotBlank(),
                 onRunning = { on ->
                     running = on; prefs.serviceEnabled = on
                     OverlayService.send(context, if (on) OverlayService.ACTION_REFRESH else OverlayService.ACTION_STOP)
@@ -182,12 +199,25 @@ private fun Deck() {
                     canOverlay = Settings.canDrawOverlays(context)
                     accEnabled = NavAccessibilityService.isEnabled
                     notifAccess = notifAccessEnabled(context)
-                }
-            )
-            Spacer(Modifier.height(14.dp))
-            AnimatedBanner(accent)
-            Spacer(Modifier.height(14.dp))
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                },
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+            ) {
+                if (searchOpen || searchQuery.isNotBlank()) {
+                    SettingsSearchPanel(
+                        query = searchQuery,
+                        accent = accent,
+                        onQueryChange = { searchQuery = it },
+                        onPick = { tabId ->
+                            runCatching { tab = Tab.valueOf(tabId) }
+                            searchQuery = ""
+                            searchOpen = false
+                        },
+                        onClose = {
+                            searchQuery = ""
+                            searchOpen = false
+                        },
+                    )
+                } else {
                 when (tab) {
                     Tab.WIDGETS -> WidgetsTab(prefs, accent, ::syncWidgets)
                     Tab.NOW_PLAYING -> NowPlayingTab(prefs, accent, ::syncWidgets)
@@ -203,10 +233,9 @@ private fun Deck() {
                         UpdateChecker.checkForUpdate(context) { updateResult = it }
                     }
                 }
-                Spacer(Modifier.height(24.dp))
+                }
             }
         }
-    }
 
         if (showOnboarding) {
             OnboardingOverlay(
@@ -404,18 +433,362 @@ private fun UpdateResultDialog(result: UpdateResult, accent: Color, onDismiss: (
     }
 }
 
+// ---- full-height tab shell ------------------------------------------------
+
+/** Each settings tab fills the content pane: full-width header + scrollable body. */
+@Composable
+private fun TabScaffold(
+    tab: Tab?,
+    running: Boolean,
+    accent: Color,
+    canOverlay: Boolean,
+    accEnabled: Boolean,
+    notifAccess: Boolean,
+    hasTopic: Boolean,
+    onRunning: (Boolean) -> Unit,
+    onRecheck: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Column(modifier.fillMaxSize().background(BG)) {
+        Row(
+            Modifier.fillMaxWidth().background(PANEL).padding(horizontal = 24.dp, vertical = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    tab?.label ?: "Search settings",
+                    color = TEXT, fontSize = 28.sp, fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    when {
+                        tab == null -> "Find any tab, section, or keyword"
+                        running -> "Overlays live on top of every app"
+                        else -> "Overlays stopped"
+                    },
+                    color = when {
+                        tab == null -> MUTED
+                        running -> accent
+                        else -> MUTED
+                    },
+                    fontSize = 13.sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Led("DRAW", canOverlay)
+                Spacer(Modifier.width(14.dp))
+                Led("NAV", accEnabled)
+                Spacer(Modifier.width(14.dp))
+                Led("NOTIF", notifAccess)
+                Spacer(Modifier.width(14.dp))
+                Led("NTFY", hasTopic)
+                Spacer(Modifier.width(18.dp))
+                Text(
+                    if (running) "ON" else "OFF",
+                    color = if (running) accent else FAINT,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(end = 10.dp),
+                )
+                Switch(checked = running, onCheckedChange = onRunning, colors = switchColors(accent))
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth().background(PANEL2).padding(horizontal = 24.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Portal Overlays", color = FAINT, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+            Spacer(Modifier.weight(1f))
+            Text(
+                "re-check permissions",
+                color = MUTED,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable { onRecheck() }
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+            )
+        }
+        Column(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 18.dp),
+        ) {
+            content()
+            Spacer(Modifier.height(28.dp))
+        }
+    }
+}
+
+// ---- settings search ----------------------------------------------------
+
+@Composable
+private fun SettingsSearchPanel(
+    query: String,
+    accent: Color,
+    onQueryChange: (String) -> Unit,
+    onPick: (String) -> Unit,
+    onClose: () -> Unit,
+) {
+    val results = remember(query) { SettingsSearch.search(query) }
+    val browsing = query.isBlank()
+
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(bottom = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                modifier = Modifier.weight(1f),
+                placeholder = { Text("Search tabs, sections, keywords…", color = FAINT, fontSize = 14.sp) },
+                singleLine = true,
+                textStyle = TextStyle(color = TEXT, fontSize = 16.sp),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = PANEL2, unfocusedContainerColor = PANEL2,
+                    focusedIndicatorColor = accent, unfocusedIndicatorColor = LINE,
+                    cursorColor = accent,
+                ),
+            )
+            Spacer(Modifier.width(12.dp))
+            Ghost("Close", Modifier.width(100.dp), onClose)
+        }
+
+        if (browsing) {
+            Text("Popular searches", color = MUTED, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SettingsSearch.quickChips.forEach { chip ->
+                    SearchChip(chip, accent) { onQueryChange(chip) }
+                }
+            }
+            Spacer(Modifier.height(22.dp))
+            Text("Browse all settings", color = MUTED, fontSize = 13.sp, modifier = Modifier.padding(bottom = 10.dp))
+            SettingsSearch.browseByTab().forEach { (tabLabel, entries) ->
+                SearchGroup(tabLabel, entries, accent, onPick)
+                Spacer(Modifier.height(12.dp))
+            }
+        } else if (results.isEmpty()) {
+            Box(
+                Modifier.fillMaxWidth().height(200.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("No matches", color = TEXT, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Try ntfy, screensaver, edge bar, wind, or labs", color = MUTED, fontSize = 14.sp,
+                        modifier = Modifier.padding(top = 6.dp))
+                }
+            }
+        } else {
+            Text(
+                "${results.size} result${if (results.size == 1) "" else "s"} for \"$query\"",
+                color = MUTED, fontSize = 13.sp, modifier = Modifier.padding(bottom = 12.dp),
+            )
+            results.forEach { hit ->
+                SearchResultCard(hit, accent) { onPick(hit.tabId) }
+                Spacer(Modifier.height(10.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchGroup(
+    tabLabel: String,
+    entries: List<SettingsSearch.Result>,
+    accent: Color,
+    onPick: (String) -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(PANEL)
+            .padding(16.dp),
+    ) {
+        Text(tabLabel, color = accent, fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+        Spacer(Modifier.height(10.dp))
+        entries.forEach { entry ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { onPick(entry.tabId) }
+                    .padding(vertical = 8.dp, horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(entry.section, color = TEXT, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                    Text(entry.description, color = MUTED, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
+                }
+                Text("→", color = FAINT, fontSize = 18.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchResultCard(hit: SettingsSearch.Result, accent: Color, onClick: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(PANEL)
+            .clickable(onClick = onClick)
+            .padding(18.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                hit.tabLabel.uppercase(),
+                color = accent,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(accent.copy(alpha = 0.15f))
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+            )
+            Spacer(Modifier.weight(1f))
+            Text("Open tab →", color = FAINT, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+        }
+        Text(hit.section, color = TEXT, fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(top = 10.dp))
+        Text(hit.description, color = MUTED, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
+        if (hit.keywords.isNotEmpty()) {
+            Row(
+                Modifier.padding(top = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                hit.keywords.take(5).forEach { kw ->
+                    Text(
+                        kw,
+                        color = FAINT,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(PANEL2)
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchHitRow(
+    hit: SettingsSearch.Result,
+    accent: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(PANEL)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(hit.section, color = TEXT, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+            Text(hit.tabLabel, color = MUTED, fontSize = 11.sp, maxLines = 1)
+        }
+        Text("→", color = accent, fontSize = 16.sp)
+    }
+}
+
+@Composable
+private fun SearchChip(label: String, accent: Color, onClick: () -> Unit) {
+    Text(
+        label,
+        color = TEXT,
+        fontSize = 11.sp,
+        fontFamily = FontFamily.Monospace,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(PANEL2)
+            .border(1.dp, LINE, RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    )
+}
+
 // ---- rail -----------------------------------------------------------------
 
 @Composable
-private fun Rail(selected: Tab, accent: Color, onSelect: (Tab) -> Unit) {
+private fun Rail(
+    selected: Tab,
+    accent: Color,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    onSearchOpen: () -> Unit,
+    onSelect: (Tab) -> Unit,
+) {
+    val hits = remember(searchQuery) { SettingsSearch.search(searchQuery) }
     Column(
-        Modifier.fillMaxHeight().width(232.dp).background(Color(0xFF0A0C0F)).padding(vertical = 26.dp)
+        Modifier.fillMaxHeight().width(240.dp).background(Color(0xFF0A0C0F))
     ) {
-        Row(Modifier.padding(start = 22.dp, bottom = 26.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.padding(top = 20.dp, bottom = 8.dp)) {
+        Row(Modifier.padding(start = 22.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(12.dp).clip(CircleShape).background(accent))
             Spacer(Modifier.width(10.dp))
             Text("OVERLAYS", color = TEXT, fontSize = 15.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
         }
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = onSearchQueryChange,
+            modifier = Modifier
+                .padding(horizontal = 14.dp)
+                .fillMaxWidth()
+                .onFocusChanged { if (it.isFocused) onSearchOpen() },
+            placeholder = { Text("Search settings…", color = FAINT, fontSize = 13.sp) },
+            singleLine = true,
+            textStyle = TextStyle(color = TEXT, fontSize = 14.sp),
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = PANEL2, unfocusedContainerColor = PANEL2,
+                focusedIndicatorColor = accent, unfocusedIndicatorColor = LINE,
+                cursorColor = accent
+            )
+        )
+        if (searchQuery.isBlank()) {
+            Text("Popular", color = FAINT, fontSize = 11.sp, modifier = Modifier.padding(start = 18.dp, top = 10.dp, bottom = 4.dp))
+            Row(
+                Modifier
+                    .padding(horizontal = 14.dp)
+                    .fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                SettingsSearch.quickChips.take(4).forEach { chip ->
+                    SearchChip(chip, accent) { onSearchQueryChange(chip); onSearchOpen() }
+                }
+            }
+        } else if (hits.isNotEmpty()) {
+            Text(
+                "${hits.size} match${if (hits.size == 1) "" else "es"} →",
+                color = accent,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(start = 18.dp, top = 8.dp, bottom = 2.dp),
+            )
+            hits.take(3).forEach { hit ->
+                SearchHitRow(hit, accent, Modifier.padding(horizontal = 10.dp, vertical = 2.dp)) {
+                    runCatching { onSelect(Tab.valueOf(hit.tabId)) }
+                    onSearchQueryChange("")
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        }
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
         Tab.values().forEach { t ->
             val active = t == selected
             Row(
@@ -433,6 +806,7 @@ private fun Rail(selected: Tab, accent: Color, onSelect: (Tab) -> Unit) {
                 Text(t.label, color = if (active) TEXT else MUTED, fontSize = 19.sp,
                     fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
             }
+        }
         }
     }
 }
@@ -581,7 +955,7 @@ private fun WidgetsTab(prefs: Prefs, accent: Color, syncWidgets: () -> Unit) {
         }
         Hint("Google Calendar → Settings → your calendar → \"Secret address in iCal format\". Apple/Outlook expose a public iCal link too.")
     }
-    Hint("Drag any widget to reposition it. Positions are remembered.")
+    Hint("Drag any widget to reposition it. Positions are remembered. Widgets snap clear of the status strip, ticker, and edge now-playing bar.")
 }
 
 @Composable
@@ -592,6 +966,10 @@ private fun NowPlayingTab(prefs: Prefs, accent: Color, syncWidgets: () -> Unit) 
             "metavr adb shell cmd notification allow_listener com.portal.overlays/com.portal.overlays.NotifyListenerService"
         )
         NowPlayingControls(prefs, accent, syncWidgets)
+        Text(
+            "Open the full card to use History (last ~20 tracks) and see album-art crossfade on track changes.",
+            color = MUTED, fontSize = 13.sp
+        )
     }
 }
 
@@ -654,11 +1032,14 @@ private fun ScreensaverTab(context: android.content.Context, prefs: Prefs, accen
         Toggle("Show clock & date", showClock, accent) { showClock = it; prefs.screensaverShowClock = it }
         Toggle("Show battery", showBattery, accent) { showBattery = it; prefs.screensaverShowBattery = it }
         Toggle("Show now playing", showNp, accent) { showNp = it; prefs.screensaverShowNowPlaying = it }
+        Text(
+            "On the idle screen: tap album art to skip, swipe left/right for prev/next, double-tap the clock to wake. " +
+                "First real idle shows a one-time hint toast.",
+            color = MUTED, fontSize = 13.sp
+        )
         if (showNp) {
             var npLayout by remember { mutableStateOf(prefs.screensaverNowPlayingLayout) }
             var vizStyle by remember { mutableStateOf(prefs.screensaverVisualizerStyle) }
-            var reactive by remember { mutableStateOf(prefs.screensaverSoundReactive) }
-            val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
             Text("Now-playing style", color = MUTED, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
             val layouts = Prefs.SCREENSAVER_NP_LAYOUTS
             Segmented(layouts.map { it.second }, layouts.indexOfFirst { it.first == npLayout }.coerceAtLeast(0), accent) {
@@ -676,16 +1057,6 @@ private fun ScreensaverTab(context: android.content.Context, prefs: Prefs, accen
                     vizStyle = vizzes[it].first; prefs.screensaverVisualizerStyle = vizStyle
                 }
             }
-            Toggle("React to live audio (experimental)", reactive, accent) {
-                reactive = it; prefs.screensaverSoundReactive = it
-                if (it) micLauncher.launch("android.permission.RECORD_AUDIO")
-            }
-            Text(
-                "Drives the visualizer from the microphone (it hears the room). On Portal the mic is shared " +
-                    "with the always-on assistant, so reaction can be laggy — leave off for the smooth " +
-                    "animated visualizer, which already plays whenever music is playing.",
-                color = MUTED, fontSize = 13.sp
-            )
         }
         Toggle("Keep screen bright", keepBright, accent) { keepBright = it; prefs.screensaverKeepBright = it }
         if (!notifAccessEnabled(context)) Text(
@@ -738,6 +1109,39 @@ private fun SettingsTab(prefs: Prefs, accent: Color, refresh: () -> Unit) {
     Section("Weather units", "Choose the unit system used for Weather.") {
         var f by remember { mutableStateOf(prefs.weatherFahrenheit) }
         Toggle("Use Fahrenheit", f, accent) { f = it; prefs.weatherFahrenheit = it; refresh() }
+    }
+    LabsSection(prefs, accent, refresh)
+}
+
+@Composable
+private fun LabsSection(prefs: Prefs, accent: Color, refresh: () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    Section(
+        "Labs",
+        "Experimental options that usually make things worse on Portal. Leave collapsed unless you know why you're here."
+    ) {
+        Ghost(if (open) "Hide labs" else "Show experimental options", Modifier.fillMaxWidth()) { open = !open }
+        if (open) {
+            var npReactive by remember { mutableStateOf(prefs.nowPlayingSoundReactive) }
+            var ssReactive by remember { mutableStateOf(prefs.screensaverSoundReactive) }
+            Text(
+                "The visualizer already animates smoothly whenever music is playing. Live-audio reaction " +
+                    "uses the microphone because Portal blocks output-mix capture for sideloaded apps, and " +
+                    "the mic is shared with the always-on assistant — so bars often look laggy or broken. " +
+                    "See docs/portal-audio-capture.md in the source repo.",
+                color = MUTED, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp, bottom = 4.dp)
+            )
+            Toggle("Now playing: react to live audio", npReactive, accent) {
+                npReactive = it; prefs.nowPlayingSoundReactive = it
+                if (it) micLauncher.launch("android.permission.RECORD_AUDIO")
+                refresh()
+            }
+            Toggle("Screensaver: react to live audio", ssReactive, accent) {
+                ssReactive = it; prefs.screensaverSoundReactive = it
+                if (it) micLauncher.launch("android.permission.RECORD_AUDIO")
+            }
+        }
     }
 }
 
@@ -805,19 +1209,6 @@ private fun NowPlayingControls(prefs: Prefs, accent: Color, refresh: () -> Unit)
             progress = it; prefs.nowPlayingShowProgress = it; refresh()
         }
         val context = LocalContext.current
-        var reactive by remember { mutableStateOf(prefs.nowPlayingSoundReactive) }
-        val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
-        Toggle("React to live audio (experimental)", reactive, accent) {
-            reactive = it; prefs.nowPlayingSoundReactive = it
-            if (it) micLauncher.launch("android.permission.RECORD_AUDIO")
-            refresh()
-        }
-        Text(
-            "Drives the visualizer from the microphone (it hears the music in the room). Needs mic " +
-                "permission. Note: on Portal the mic is shared with the always-on assistant, so reaction " +
-                "can be laggy/choppy — leave this off for the smooth animated visualizer.",
-            color = MUTED, fontSize = 13.sp
-        )
         Text("Visualizer", color = MUTED, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp))
         val visualizers = Prefs.NOW_PLAYING_VISUALIZERS
         Segmented(
@@ -867,6 +1258,10 @@ private fun TickerTab(prefs: Prefs, accent: Color, syncTicker: () -> Unit) {
         Field("Feed URL (RSS/Atom or JSON)", url, "https://... .xml or .json") {
             url = it; prefs.tickerUrl = it; syncTicker()
         }
+        Text(
+            "Custom finance watchlists: finance:crypto:BTC,ETH,SOL or finance:stocks:AAPL,TSLA,NVDA",
+            color = MUTED, fontSize = 13.sp
+        )
         Text("Quick sources", color = MUTED, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
         Prefs.TICKER_SOURCES.forEach { (label, source) ->
             Ghost("Use $label", Modifier.fillMaxWidth()) {
@@ -917,6 +1312,9 @@ private fun StripTab(prefs: Prefs, accent: Color, refresh: () -> Unit) {
             var week by remember { mutableStateOf(prefs.stripShowWeek) }
             var rain by remember { mutableStateOf(prefs.stripShowRain) }
             var sun by remember { mutableStateOf(prefs.stripShowSun) }
+            var wind by remember { mutableStateOf(prefs.stripShowWind) }
+            var uv by remember { mutableStateOf(prefs.stripShowUv) }
+            var alert by remember { mutableStateOf(prefs.stripShowWeatherAlert) }
             var agenda by remember { mutableStateOf(prefs.stripShowAgenda) }
             var n by remember { mutableStateOf(prefs.stripShowNtfy) }
             var ctx by remember { mutableStateOf(prefs.stripShowContext) }
@@ -924,6 +1322,8 @@ private fun StripTab(prefs: Prefs, accent: Color, refresh: () -> Unit) {
             Toggle("Clock", c, accent) { c = it; prefs.stripShowClock = it; refresh() }
             Toggle("Date", d, accent) { d = it; prefs.stripShowDate = it; refresh() }
             Toggle("Foreground app / Portal UI", ctx, accent) { ctx = it; prefs.stripShowContext = it; refresh() }
+            Text("Tap the foreground-app label on the strip to open, inspect, or force-stop the app.",
+                color = MUTED, fontSize = 13.sp)
             Toggle("Back / Home / Recents on strip", nav, accent) { nav = it; prefs.stripShowNavButtons = it; refresh() }
             Toggle("Weather", w, accent) { w = it; prefs.stripShowWeather = it; refresh() }
             Toggle("Battery", b, accent) { b = it; prefs.stripShowBattery = it; refresh() }
@@ -934,6 +1334,9 @@ private fun StripTab(prefs: Prefs, accent: Color, refresh: () -> Unit) {
             Toggle("Week number", week, accent) { week = it; prefs.stripShowWeek = it; refresh() }
             Toggle("Rain in the next hour", rain, accent) { rain = it; prefs.stripShowRain = it; refresh() }
             Toggle("Time to sunset / sunrise", sun, accent) { sun = it; prefs.stripShowSun = it; refresh() }
+            Toggle("Wind speed", wind, accent) { wind = it; prefs.stripShowWind = it; refresh() }
+            Toggle("UV index", uv, accent) { uv = it; prefs.stripShowUv = it; refresh() }
+            Toggle("Severe weather alert", alert, accent) { alert = it; prefs.stripShowWeatherAlert = it; refresh() }
             Toggle("Next calendar event", agenda, accent) { agenda = it; prefs.stripShowAgenda = it; refresh() }
             if ((rain || sun) && prefs.weatherCity.isBlank()) {
                 Text("Set a Weather city in the Widgets tab - rain and sun times need a location.",
@@ -944,6 +1347,8 @@ private fun StripTab(prefs: Prefs, accent: Color, refresh: () -> Unit) {
                     color = MUTED, fontSize = 13.sp)
             }
             Toggle("ntfy status", n, accent) { n = it; prefs.stripShowNtfy = it; refresh() }
+            Text("Tap the ntfy line on the strip to preview the last message.",
+                color = MUTED, fontSize = 13.sp)
         }
     }
 }
@@ -1199,7 +1604,14 @@ private fun AboutTab(accent: Color, onCheck: () -> Unit = {}) {
 
 @Composable
 private fun Section(title: String, subtitle: String, content: @Composable () -> Unit) {
-    Box(Modifier.fillMaxWidth().padding(bottom = 16.dp).clip(RoundedCornerShape(18.dp)).background(PANEL).padding(22.dp)) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(bottom = 14.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(PANEL)
+            .padding(horizontal = 22.dp, vertical = 20.dp),
+    ) {
         Column {
             Text(title, color = TEXT, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
             if (subtitle.isNotBlank()) Text(subtitle, color = MUTED, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp, bottom = 6.dp))

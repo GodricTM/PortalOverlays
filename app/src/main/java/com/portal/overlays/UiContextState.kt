@@ -49,6 +49,9 @@ object UiContextState {
         return true
     }
 
+    /** Package name of the foreground app, or blank when unknown / launcher shell. */
+    fun currentPackageName(): String = packageName
+
     fun displayLabel(context: Context): String {
         val pkg = packageName
         val cls = className

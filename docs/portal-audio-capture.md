@@ -54,9 +54,10 @@ only reaches the single near-field handset mic, which is shared with the device'
   whenever a media session reports `STATE_PLAYING`, so it's lively and perfectly smooth, and conveys
   "music is playing" without needing the audio samples. New **Spectrum** style (mirrored bars +
   reflection) plus Waves / Rings / Constellation / Prism.
-- **Experimental opt-in:** `SoundReactor` (mic + Goertzel), `RECORD_AUDIO`, off by default, labelled as
-  laggy on Portal. Kept because it may behave better on non-Portal hardware running this app, and
-  because it self-disables (guarded `start()` returns `false`) so it can never crash the host.
+- **Experimental opt-in:** `SoundReactor` (mic + Goertzel), `RECORD_AUDIO`, off by default, hidden under
+  **Settings → Labs** in the control panel (not on the Now Playing or Screensaver tabs). Laggy on
+  Portal. Kept because it may behave better on non-Portal hardware running this app, and because it
+  self-disables (guarded `start()` returns `false`) so it can never crash the host.
 
 ## If revisiting
 

@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8] - 2026-07-01
+
+### Added
+- **Screensaver remote control** — on the idle screen: tap album art to skip, swipe left/right for
+  prev/next, double-tap the clock to wake. Uses the active media session (same as the full card).
+- **Screensaver gesture hint** — a one-time toast on first real idle: "Swipe art · double-tap clock"
+  (Preview in the app does not consume the hint).
+- **Track history** — the full now-playing card logs the last ~20 tracks locally (title, artist,
+  timestamp, cached cover art). Tap **History** on the full card for a scrollable list with album
+  thumbnails and relative timestamps; no cloud.
+- **Album-art crossfade** — cover art fades between tracks instead of hard-swapping.
+- **Open-Meteo strip extras** — optional status-strip lines for wind speed, UV index, and severe
+  weather alert (WMO thunder/hail codes), from the same poll — no new API key.
+- **Finance ticker watchlists** — custom symbols in the feed URL:
+  `finance:crypto:BTC,ETH,SOL` or `finance:stocks:AAPL,TSLA,NVDA`.
+- **Settings search** — full-panel search in the control deck: ~40 section-level entries, ranked
+  results with tab badge / description / keyword chips, browse-by-tab catalog, popular quick chips
+  in the rail, and inline top matches while typing. Tap a result to jump to that tab.
+- **Seek-jump visualizer pulse** — when playback position jumps >5s (skip/seek from another device),
+  the visualizer pulses once — no microphone.
+- **Vector transport buttons** — prev / play-pause / next on the full card, edge bar, and strip dock
+  use crisp vector icons instead of text glyphs.
+- **Strip tap actions** — tap the foreground-app line for Open / App info / Force stop; tap the ntfy
+  line for the last message preview.
+- **Widget safe zones & soft collision** — draggable widgets nudge away from the strip, ticker, edge
+  now-playing, and top pills; widgets also nudge apart when overlapping.
+- **Post-boot nav warning** — banner when accessibility could not be restored after reboot and nav
+  features are wanted.
+- **Labs section** — experimental **React to live audio** moved from Now Playing / Screensaver tabs
+  into Settings → Labs (off by default).
+
+### Changed
+- **Control deck layout** — each settings tab now fills the full content pane (compact status bar +
+  scrollable body). The animated hero banner was removed to give settings more room.
+- Control-panel hints on Screensaver, Now Playing, Strip, and Ticker tabs document the new gestures,
+  history, weather extras, and finance URL formats.
+
+### Fixed
+- **Now-playing cover art** — album art no longer disappears when opening the full card or rebuilding
+  the dock; art is bound per view and only crossfades when the track or source actually changes (no
+  more constant refresh flicker).
+
 ## [1.7] - 2026-06-27
 
 ### Added

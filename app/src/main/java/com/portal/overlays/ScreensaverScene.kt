@@ -20,6 +20,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
@@ -27,6 +28,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
@@ -34,6 +36,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -47,7 +50,9 @@ import kotlin.math.roundToInt
  */
 class ScreensaverScene(
     private val ctx: Context,
-    private val onExit: () -> Unit
+    private val onExit: () -> Unit,
+    /** True on the real dream service — shows the one-time gesture hint toast on first idle. */
+    private val showGestureHint: Boolean = false,
 ) {
     private val prefs = Prefs(ctx)
     private val main = Handler(Looper.getMainLooper())
@@ -80,6 +85,7 @@ class ScreensaverScene(
         Thread(r, "dream-artwork").apply { isDaemon = true }
     }
     @Volatile private var artUriShowing: String? = null
+    @Volatile private var pendingArtUri: String? = null
 
     private val sessionsListener =
         MediaSessionManager.OnActiveSessionsChangedListener { controllers ->
@@ -112,12 +118,6 @@ class ScreensaverScene(
         if (cover) buildNowPlayingCover(root) else buildBackground(root)
         if (prefs.screensaverShowClock || prefs.screensaverShowBattery) buildStatus(root)
         if (prefs.screensaverShowNowPlaying && !cover) buildNowPlayingCard(root)
-        // Top-most transparent catcher: a tap anywhere exits. Sits above the WebView, which would
-        // otherwise swallow touches (see PortalDevKit gotchas), so dismissal always works.
-        root.addView(View(ctx).apply {
-            isClickable = true
-            setOnClickListener { onExit() }
-        }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         updateClock(); updateBattery()
         return root
     }
@@ -132,6 +132,16 @@ class ScreensaverScene(
             }
         }
         main.post(tick)
+        maybeShowGestureHint()
+    }
+
+    private fun maybeShowGestureHint() {
+        if (!showGestureHint || !prefs.screensaverShowNowPlaying || prefs.screensaverGestureHintShown) return
+        main.postDelayed({
+            if (prefs.screensaverGestureHintShown) return@postDelayed
+            Toast.makeText(ctx, "Swipe art · double-tap clock", Toast.LENGTH_LONG).show()
+            prefs.screensaverGestureHintShown = true
+        }, 900)
     }
 
     fun stop() {
@@ -189,6 +199,7 @@ class ScreensaverScene(
                 GradientDrawable.Orientation.BOTTOM_TOP,
                 intArrayOf(0xCC000000.toInt(), 0x00000000)
             )
+            setOnClickListener { onExit() }
         }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(360)).also {
             it.gravity = Gravity.BOTTOM
         })
@@ -214,6 +225,8 @@ class ScreensaverScene(
             }
             col.addView(clockTime)
             col.addView(clockDate)
+            attachClockDismiss(clockTime)
+            attachClockDismiss(clockDate)
         }
         if (prefs.screensaverShowBattery) {
             battery = TextView(ctx).apply {
@@ -334,6 +347,7 @@ class ScreensaverScene(
 
         npCard = card; npArt = art; npTitle = title; npArtist = artist; npApp = app; npAppIcon = appIcon
         npEq = eq; npProgress = bar; npElapsed = elapsed; npDuration = duration
+        attachAlbumArtControls(art)
 
         root.addView(card, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
@@ -355,6 +369,7 @@ class ScreensaverScene(
             style = prefs.screensaverVisualizerStyle
         }
         npVisualizer = vis
+        vis.setOnClickListener { onExit() }
         root.addView(vis, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
@@ -422,10 +437,54 @@ class ScreensaverScene(
         }
         npCard = content; npArt = art; npApp = app; npAppIcon = appIcon; npTitle = title; npArtist = artist
         npProgress = bar; npElapsed = elapsed; npDuration = duration; npEq = null
+        attachAlbumArtControls(art)
 
         root.addView(content, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ).also { it.gravity = Gravity.CENTER })
+    }
+
+    // ---- screensaver touch controls ---------------------------------------
+
+    private var lastClockTapMs = 0L
+
+    /** Double-tap the clock to dismiss the dream / wake the device. */
+    private fun attachClockDismiss(view: TextView?) {
+        view ?: return
+        view.isClickable = true
+        view.setOnClickListener {
+            val now = System.currentTimeMillis()
+            if (now - lastClockTapMs < 450) onExit()
+            lastClockTapMs = now
+        }
+    }
+
+    /** Tap album art → skip track; swipe left/right → prev/next. */
+    private fun attachAlbumArtControls(art: ImageView) {
+        var downX = 0f
+        var downY = 0f
+        art.isClickable = true
+        art.setOnTouchListener { _, e ->
+            when (e.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = e.rawX; downY = e.rawY
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    val c = activeController ?: return@setOnTouchListener true
+                    val dx = e.rawX - downX
+                    val dy = e.rawY - downY
+                    if (abs(dx) > dp(40) && abs(dx) > abs(dy)) {
+                        if (dx < 0) c.transportControls.skipToNext()
+                        else c.transportControls.skipToPrevious()
+                    } else if (abs(dx) < dp(24) && abs(dy) < dp(24)) {
+                        c.transportControls.skipToNext()
+                    }
+                    true
+                }
+                else -> true
+            }
+        }
     }
 
     // ---- media reading ----------------------------------------------------
@@ -545,13 +604,32 @@ class ScreensaverScene(
     // ---- artwork ----------------------------------------------------------
 
     private fun applyArtwork(md: MediaMetadata) {
+        val title = md.getString(MediaMetadata.METADATA_KEY_TITLE)
+            ?: md.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE)
+            ?: ""
+        val artist = md.getString(MediaMetadata.METADATA_KEY_ARTIST)
+            ?: md.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
+            ?: md.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE)
+            ?: ""
+        val trackKey = "$title|$artist"
+
         (md.getBitmap(MediaMetadata.METADATA_KEY_ART)
             ?: md.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
             ?: md.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON))?.let {
-            npArt?.setImageBitmap(it); artUriShowing = null; return
+            val key = "embedded:$trackKey"
+            if (artUriShowing == key) return
+            npArt?.setImageBitmap(it)
+            artUriShowing = key
+            return
         }
         val uriStr = artUri(md)
-        if (uriStr.isNullOrBlank()) { npArt?.setImageResource(android.R.drawable.ic_media_play); return }
+        if (uriStr.isNullOrBlank()) {
+            val key = "none:$trackKey"
+            if (artUriShowing == key) return
+            npArt?.setImageResource(android.R.drawable.ic_media_play)
+            artUriShowing = key
+            return
+        }
         if (artUriShowing == uriStr) return
         val uri = runCatching { Uri.parse(uriStr) }.getOrNull() ?: return
         val scheme = uri.scheme?.lowercase(Locale.US)
@@ -565,6 +643,8 @@ class ScreensaverScene(
     }
 
     private fun fetchRemoteArt(uriStr: String) {
+        if (pendingArtUri == uriStr) return
+        pendingArtUri = uriStr
         artworkIo.execute {
             val bmp = runCatching {
                 val conn = (URL(uriStr).openConnection() as? HttpURLConnection) ?: return@runCatching null
@@ -582,9 +662,12 @@ class ScreensaverScene(
                 } finally { runCatching { conn.disconnect() } }
             }.getOrNull()
             if (bmp != null) main.post {
+                pendingArtUri = null
                 if (activeController?.metadata?.let { artUri(it) } == uriStr) {
                     npArt?.setImageBitmap(bmp); artUriShowing = uriStr
                 }
+            } else {
+                pendingArtUri = null
             }
         }
     }

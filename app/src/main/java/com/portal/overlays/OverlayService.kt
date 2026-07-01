@@ -1,5 +1,6 @@
 package com.portal.overlays
 
+import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -15,6 +16,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.hardware.display.DisplayManager
@@ -27,6 +29,7 @@ import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.animation.ObjectAnimator
+import android.net.Uri
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.TrafficStats
@@ -94,13 +97,13 @@ class OverlayService : Service() {
     private var batteryText: TextView? = null
     private var nowPlayingView: View? = null
     private var nowPlayingMiniArt: ImageView? = null
-    private var nowPlayingMiniGlyph: TextView? = null
+    private var nowPlayingMiniGlyph: ImageView? = null
     // Strip-dock elements (the "much larger" docked widget: cover + title/artist + progress).
     private var nowPlayingStripArt: ImageView? = null
     private var nowPlayingStripTitle: TextView? = null
     private var nowPlayingStripSubtitle: TextView? = null
     private var nowPlayingStripProgress: android.widget.ProgressBar? = null
-    private var nowPlayingStripGlyph: TextView? = null
+    private var nowPlayingStripGlyph: ImageView? = null
     // Edge-bar-only extras (source-app icon, mini equaliser, elapsed/total time).
     private var nowPlayingEdgeAppIcon: ImageView? = null
     private var nowPlayingEdgeEq: MiniEqualizerView? = null
@@ -113,7 +116,7 @@ class OverlayService : Service() {
     private var nowPlayingFullTitle: TextView? = null
     private var nowPlayingFullSubtitle: TextView? = null
     private var nowPlayingFullApp: TextView? = null
-    private var nowPlayingFullPlay: TextView? = null
+    private var nowPlayingFullPlay: ImageView? = null
     private var nowPlayingFullAppIcon: ImageView? = null
     private var nowPlayingFullAlbum: TextView? = null
     private var nowPlayingFullProgress: android.widget.ProgressBar? = null
@@ -152,6 +155,9 @@ class OverlayService : Service() {
     private var stripWeek: TextView? = null
     private var stripRain: TextView? = null
     private var stripSun: TextView? = null
+    private var stripWind: TextView? = null
+    private var stripUv: TextView? = null
+    private var stripWeatherAlert: TextView? = null
     private var stripAgenda: TextView? = null
     private var stripNavSpacer: View? = null
     private var stripNavBack: View? = null
@@ -180,6 +186,17 @@ class OverlayService : Service() {
     private var calCfgLoaded: String = ""
     @Volatile private var calEvents: List<CalendarClient.Event> = emptyList()
     @Volatile private var connected = false
+    @Volatile private var lastNtfyTitle = ""
+    @Volatile private var lastNtfyMessage = ""
+    @Volatile private var lastNtfyAtMs = 0L
+    private var navWarningView: View? = null
+    private val trackHistory by lazy { TrackHistory(this) }
+    private var lastTrackKey = ""
+    /** Last cover-art identity applied to now-playing ImageViews (URI, embedded track key, or none key). */
+    private var lastAppliedArtKey = ""
+    /** True when [lastAppliedArtKey] currently shows a decoded bitmap (not placeholder / loading). */
+    private var lastArtDisplayed = false
+    private var lastPlaybackPosMs = -1L
     @Volatile private var lastWeather: String = ""
     @Volatile private var weatherExtras: WeatherClient.Extras = WeatherClient.Extras()
     private var lastNetworkRxBytes = -1L
@@ -285,7 +302,11 @@ class OverlayService : Service() {
     override fun onDestroy() { stopEverything(); super.onDestroy() }
 
     private val tick = object : Runnable {
-        override fun run() { updateLiveText(); main.postDelayed(this, 1000) }
+        override fun run() {
+            updateLiveText()
+            updateNavAccessibilityWarning()
+            main.postDelayed(this, 1000)
+        }
     }
 
     // ---- lifecycle / sync -------------------------------------------------
@@ -318,6 +339,7 @@ class OverlayService : Service() {
         // hidden too so the bottom edge is fully clear.
         if (prefs.tickerEnabled && prefs.tickerUrl.isNotBlank() && !stripUserHidden) showTicker()
         syncBackgroundClients()
+        updateNavAccessibilityWarning()
     }
 
     private fun syncWidgetState() {
@@ -430,6 +452,9 @@ class OverlayService : Service() {
                     onConnected = { c -> main.post { connected = c; updateLiveText() } },
                     onMessage = { title, msg, priority, tags ->
                         main.post {
+                            lastNtfyTitle = title
+                            lastNtfyMessage = msg
+                            lastNtfyAtMs = System.currentTimeMillis()
                             if (prefs.breakingNewsEnabled && isBreaking(priority, tags)) showBreakingNews(title, msg)
                             else showBanner(title, msg)
                         }
@@ -438,7 +463,8 @@ class OverlayService : Service() {
             }
         } else { ntfy?.stop(); ntfy = null; ntfyCfgLoaded = ""; connected = false }
 
-        val needWeather = prefs.weatherEnabled || prefs.stripShowWeather || prefs.stripShowRain || prefs.stripShowSun
+        val needWeather = prefs.weatherEnabled || prefs.stripShowWeather || prefs.stripShowRain ||
+            prefs.stripShowSun || prefs.stripShowWind || prefs.stripShowUv || prefs.stripShowWeatherAlert
         val city = prefs.weatherCity
         val cfg = "$city|${prefs.weatherFahrenheit}"
         if (needWeather && city.isNotBlank()) {
@@ -487,6 +513,7 @@ class OverlayService : Service() {
     }
 
     private fun removeAllOverlays() {
+        navWarningView?.let(::safeRemove); navWarningView = null
         listOf(clockView, weatherView, batteryView, nowPlayingView, nowPlayingFullView, noteView, agendaView, stripView, stripHandleView, navView, tickerView).forEach { it?.let(::safeRemove) }
         draggables.clear()
         clockView = null; weatherView = null; batteryView = null; nowPlayingView = null; noteView = null; stripView = null; stripHandleView = null; navView = null
@@ -504,7 +531,8 @@ class OverlayService : Service() {
         stripClock = null; stripDate = null; stripWeather = null; stripBattery = null
         stripNetwork = null; stripNtfy = null
         stripStreamingDot = null; stripVpnDot = null; stripWifiBars = null
-        stripWeek = null; stripRain = null; stripSun = null; stripAgenda = null
+        stripWeek = null; stripRain = null; stripSun = null; stripWind = null; stripUv = null
+        stripWeatherAlert = null; stripAgenda = null
         stripNavSpacer = null; stripNavBack = null; stripNavHome = null; stripNavRecents = null
         stripLp = null
         tickerAnim?.cancel(); tickerAnim = null
@@ -587,6 +615,7 @@ class OverlayService : Service() {
     ).joinToString("|")
 
     private fun showNowPlaying() {
+        resetNowPlayingArtGuard()
         nowPlayingDockBuilt = nowPlayingDockKey()
         when (prefs.nowPlayingDockStyle) {
             "strip" -> showNowPlayingStrip()
@@ -630,14 +659,7 @@ class OverlayService : Service() {
             isFocusable = false
         }
         button.addView(art, FrameLayout.LayoutParams(dp(artDp), dp(artDp)).also { it.gravity = Gravity.CENTER })
-        val glyph = TextView(this).apply {
-            text = ">"
-            setTextColor(Color.WHITE)
-            textSize = scaled(if (glyphDp >= 38) 22f else if (glyphDp <= 24) 14f else 18f)
-            gravity = Gravity.CENTER
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            background = circle(0xAA000000.toInt())
-        }
+        val glyph = TransportButtons.makeBadge(this, glyphDp)
         button.addView(glyph, FrameLayout.LayoutParams(dp(glyphDp), dp(glyphDp)).also {
             it.gravity = Gravity.BOTTOM or Gravity.END
         })
@@ -724,24 +746,24 @@ class OverlayService : Service() {
         }
 
         // Transport: previous — play/pause — next.
-        fun transport(label: String, size: Float, diameter: Int, tap: () -> Unit) = TextView(this).apply {
-            text = label
-            setTextColor(Color.WHITE); textSize = scaled(size)
-            gravity = Gravity.CENTER
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            background = circle(0x55000000)
-            setOnClickListener { tap() }
-        }.also { bar.addView(it, LinearLayout.LayoutParams(dp(diameter), dp(diameter)).also { lp -> lp.leftMargin = dp(6) }) }
-
-        transport("◀", 14f, 32) { activeMediaController?.transportControls?.skipToPrevious() }
-        val glyph = transport(">", 17f, 38) { togglePlayback() }
-        transport("▶", 14f, 32) { activeMediaController?.transportControls?.skipToNext() }
+        val prev = TransportButtons.makeButton(
+            this, R.drawable.ic_transport_skip_previous, 36, 0x55000000, iconPaddingDp = 8
+        ) { activeMediaController?.transportControls?.skipToPrevious() }
+        bar.addView(prev, LinearLayout.LayoutParams(dp(36), dp(36)).also { it.leftMargin = dp(6) })
+        val playBtn = TransportButtons.makeButton(
+            this, R.drawable.ic_transport_play, 42, prefs.accentColor, iconPaddingDp = 9, accentRing = true
+        ) { togglePlayback() }
+        bar.addView(playBtn, LinearLayout.LayoutParams(dp(42), dp(42)).also { it.leftMargin = dp(6) })
+        val next = TransportButtons.makeButton(
+            this, R.drawable.ic_transport_skip_next, 36, 0x55000000, iconPaddingDp = 8
+        ) { activeMediaController?.transportControls?.skipToNext() }
+        bar.addView(next, LinearLayout.LayoutParams(dp(36), dp(36)).also { it.leftMargin = dp(6) })
 
         nowPlayingStripArt = art
         nowPlayingStripTitle = title
         nowPlayingStripSubtitle = subtitle
         nowPlayingStripProgress = if (showProgress) progress else null
-        nowPlayingStripGlyph = glyph
+        nowPlayingStripGlyph = playBtn
         nowPlayingEdgeAppIcon = appIcon
         nowPlayingEdgeEq = eq
         nowPlayingEdgeElapsed = if (showProgress) elapsed else null
@@ -806,14 +828,9 @@ class OverlayService : Service() {
         }
         row.addView(column, LinearLayout.LayoutParams(dp(196), ViewGroup.LayoutParams.WRAP_CONTENT))
 
-        val glyph = TextView(this).apply {
-            text = ">"
-            setTextColor(Color.WHITE); textSize = scaled(20f)
-            gravity = Gravity.CENTER
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            background = circle(0x552A303A)
-            setOnClickListener { togglePlayback() }
-        }
+        val glyph = TransportButtons.makeButton(
+            this, R.drawable.ic_transport_play, 44, 0x552A303A, iconPaddingDp = 10
+        ) { togglePlayback() }
         row.addView(glyph, LinearLayout.LayoutParams(dp(44), dp(44)).also { it.leftMargin = dp(10) })
 
         nowPlayingStripArt = art
@@ -1007,20 +1024,18 @@ class OverlayService : Service() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        fun bigControl(label: String, width: Int = 76, tap: () -> Unit) = TextView(this).apply {
-            text = label
-            setTextColor(Color.WHITE)
-            textSize = scaled(if (width > 90) 34f else 28f)
-            gravity = Gravity.CENTER
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            background = rounded(0xAA252B35.toInt(), 24)
-            setOnClickListener { tap() }
-        }.also {
-            controls.addView(it, LinearLayout.LayoutParams(dp(width), dp(76)).also { lp -> lp.rightMargin = dp(14) })
-        }
-        bigControl("<<") { activeMediaController?.transportControls?.skipToPrevious() }
-        val play = bigControl(">", 104) { togglePlayback() }
-        bigControl(">>") { activeMediaController?.transportControls?.skipToNext() }
+        val prev = TransportButtons.makePillButton(
+            this, R.drawable.ic_transport_skip_previous, 76, 76, 24, 0xAA252B35.toInt(), iconPaddingDp = 18
+        ) { activeMediaController?.transportControls?.skipToPrevious() }
+        controls.addView(prev, LinearLayout.LayoutParams(dp(76), dp(76)).also { it.rightMargin = dp(14) })
+        val play = TransportButtons.makePillButton(
+            this, R.drawable.ic_transport_play, 104, 76, 24, prefs.accentColor, iconPaddingDp = 22, 
+        ) { togglePlayback() }
+        controls.addView(play, LinearLayout.LayoutParams(dp(104), dp(76)).also { it.rightMargin = dp(14) })
+        val next = TransportButtons.makePillButton(
+            this, R.drawable.ic_transport_skip_next, 76, 76, 24, 0xAA252B35.toInt(), iconPaddingDp = 18
+        ) { activeMediaController?.transportControls?.skipToNext() }
+        controls.addView(next, LinearLayout.LayoutParams(dp(76), dp(76)).also { it.rightMargin = dp(14) })
 
         info.addView(appRow)
         info.addView(title, LinearLayout.LayoutParams(dp(840), ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -1028,6 +1043,17 @@ class OverlayService : Service() {
         info.addView(album, LinearLayout.LayoutParams(dp(760), ViewGroup.LayoutParams.WRAP_CONTENT))
         if (prefs.nowPlayingShowProgress) info.addView(progressRow, LinearLayout.LayoutParams(dp(760), ViewGroup.LayoutParams.WRAP_CONTENT))
         info.addView(controls)
+        info.addView(TextView(this).apply {
+            text = "History"
+            setTextColor(0xFFC2C8D2.toInt())
+            textSize = scaled(15f)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            background = rounded(0x552A303A, 14)
+            setPadding(dp(22), dp(10), dp(22), dp(10))
+            setOnClickListener { showTrackHistory() }
+        }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).also { it.topMargin = dp(16) })
 
         when (layoutStyle) {
             "centered" -> {
@@ -1182,6 +1208,10 @@ class OverlayService : Service() {
             pos += (delta * state.playbackSpeed).toLong()
         }
         pos = pos.coerceIn(0L, duration)
+        if (lastPlaybackPosMs >= 0 && kotlin.math.abs(pos - lastPlaybackPosMs) > 5000L) {
+            nowPlayingVisualizer?.pulseSeek()
+        }
+        lastPlaybackPosMs = pos
         val pct = ((pos * 1000L) / duration).toInt()
         fullBar?.progress = pct
         stripBar?.progress = pct
@@ -1289,17 +1319,17 @@ class OverlayService : Service() {
         applyNowPlayingDockVisibility()
 
         if (mediaAccessMissing) {
-            nowPlayingMiniGlyph?.text = "!"
-            nowPlayingMiniArt?.setImageResource(android.R.drawable.ic_dialog_info)
-            nowPlayingStripGlyph?.text = "!"
-            nowPlayingStripArt?.setImageResource(android.R.drawable.ic_dialog_info)
+            nowPlayingMiniGlyph?.setImageResource(android.R.drawable.ic_dialog_info)
+            nowPlayingStripGlyph?.setImageResource(android.R.drawable.ic_dialog_info)
             nowPlayingStripTitle?.text = "Notification access needed"
             nowPlayingStripSubtitle?.text = "Allow the listener, then refresh"
             nowPlayingStripProgress?.progress = 0
             nowPlayingFullTitle?.text = "Notification access needed"
             nowPlayingFullSubtitle?.text = "Allow the listener, then refresh"
             nowPlayingFullApp?.text = "NOW PLAYING"
-            nowPlayingFullPlay?.text = ">"
+            nowPlayingFullPlay?.setImageResource(android.R.drawable.ic_dialog_info)
+            nowPlayingMiniArt?.setImageResource(android.R.drawable.ic_dialog_info)
+            nowPlayingStripArt?.setImageResource(android.R.drawable.ic_dialog_info)
             nowPlayingFullArt?.setImageResource(android.R.drawable.ic_dialog_info)
             nowPlayingFullAlbum?.visibility = View.GONE
             nowPlayingFullAppIcon?.visibility = View.GONE
@@ -1307,19 +1337,20 @@ class OverlayService : Service() {
             return
         }
         if (controller == null || metadata == null) {
-            nowPlayingMiniGlyph?.text = ">"
+            lastAppliedArtKey = ""
+            lastArtDisplayed = false
+            TransportButtons.applyPlayState(nowPlayingMiniGlyph, false)
             nowPlayingMiniArt?.setImageResource(android.R.drawable.ic_media_play)
-            nowPlayingStripGlyph?.text = ">"
-            nowPlayingStripArt?.setImageResource(android.R.drawable.ic_media_play)
+            TransportButtons.applyPlayState(nowPlayingStripGlyph, false)
             nowPlayingStripTitle?.text = "Nothing playing"
             nowPlayingStripSubtitle?.text = "Start media in any app"
             nowPlayingStripProgress?.progress = 0
             nowPlayingFullTitle?.text = "Nothing playing"
             nowPlayingFullSubtitle?.text = "Start media in any app"
             nowPlayingFullApp?.text = "NOW PLAYING"
-            nowPlayingFullPlay?.text = ">"
+            TransportButtons.applyPlayState(nowPlayingFullPlay, false)
             nowPlayingFullArt?.setImageResource(android.R.drawable.ic_media_play)
-            nowPlayingFullAlbum?.visibility = View.GONE
+            nowPlayingStripArt?.setImageResource(android.R.drawable.ic_media_play)
             nowPlayingFullAppIcon?.visibility = View.GONE
             nowPlayingEdgeAppIcon?.visibility = View.GONE
             return
@@ -1333,15 +1364,26 @@ class OverlayService : Service() {
             ?: metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE)
             ?: appLabel(controller.packageName)
         val art = loadArtwork(metadata)
+        val trackKey = "$title|$artist"
+        if (trackKey != lastTrackKey) {
+            lastTrackKey = trackKey
+            lastAppliedArtKey = ""
+            lastArtDisplayed = false
+            lastPlaybackPosMs = -1L
+            trackHistory.record(
+                title, artist, artUriFromMetadata(metadata),
+                art ?: artUriFromMetadata(metadata)?.let { artworkCache[it] },
+            )
+        }
 
-        nowPlayingMiniGlyph?.text = if (playing) "||" else ">"
-        nowPlayingStripGlyph?.text = if (playing) "||" else ">"
+        TransportButtons.applyPlayState(nowPlayingMiniGlyph, playing)
+        TransportButtons.applyPlayState(nowPlayingStripGlyph, playing)
         nowPlayingStripTitle?.text = title
         nowPlayingStripSubtitle?.text = artist
         nowPlayingFullTitle?.text = title
         nowPlayingFullSubtitle?.text = artist
         nowPlayingFullApp?.text = appLabel(controller.packageName).uppercase(Locale.getDefault())
-        nowPlayingFullPlay?.text = if (playing) "||" else ">"
+        TransportButtons.applyPlayState(nowPlayingFullPlay, playing)
 
         // Album line (hidden when absent or identical to the track title).
         val album = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM)
@@ -1357,14 +1399,203 @@ class OverlayService : Service() {
             if (appIcon != null) { iv.setImageDrawable(appIcon); iv.visibility = View.VISIBLE } else iv.visibility = View.GONE
         }
         if (art != null) {
-            nowPlayingMiniArt?.setImageBitmap(art)
-            nowPlayingStripArt?.setImageBitmap(art)
-            nowPlayingFullArt?.setImageBitmap(art)
+            applyNowPlayingArtIfChanged(artUriFromMetadata(metadata) ?: "embedded:$trackKey", art)
         } else {
-            nowPlayingMiniArt?.setImageResource(android.R.drawable.ic_media_play)
-            nowPlayingStripArt?.setImageResource(android.R.drawable.ic_media_play)
-            nowPlayingFullArt?.setImageResource(android.R.drawable.ic_media_play)
+            applyNowPlayingArtPlaceholder(artUriFromMetadata(metadata), trackKey)
         }
+    }
+
+    /** Crossfade cover art only when the URI / track identity changes, or a view was rebuilt. */
+    private fun applyNowPlayingArtIfChanged(artKey: String, art: Bitmap) {
+        val targets = listOf(nowPlayingMiniArt, nowPlayingStripArt, nowPlayingFullArt)
+        val allBound = targets.all { iv -> iv != null && iv.tag == artKey }
+        if (artKey == lastAppliedArtKey && lastArtDisplayed && allBound) return
+
+        lastAppliedArtKey = artKey
+        lastArtDisplayed = true
+        targets.forEach { iv ->
+            iv ?: return@forEach
+            if (iv.tag == artKey && iv.drawable != null) return@forEach
+            TrackHistory.crossfadeArt(iv) {
+                it.setImageBitmap(art)
+                it.tag = artKey
+                it.alpha = 1f
+            }
+        }
+    }
+
+    /** Placeholder or wait for remote art — never re-flash on every playback tick. */
+    private fun applyNowPlayingArtPlaceholder(remoteUri: String?, trackKey: String) {
+        if (!remoteUri.isNullOrBlank()) {
+            artworkCache[remoteUri]?.let {
+                applyNowPlayingArtIfChanged(remoteUri, it)
+                return
+            }
+            if (remoteUri == lastAppliedArtKey) return
+            lastAppliedArtKey = remoteUri
+            lastArtDisplayed = false
+            return
+        }
+        val noneKey = "none:$trackKey"
+        if (noneKey == lastAppliedArtKey && !lastArtDisplayed) return
+        lastAppliedArtKey = noneKey
+        lastArtDisplayed = false
+        fun setPlaceholder(iv: ImageView?) {
+            iv ?: return
+            if (iv.tag == noneKey) return
+            TrackHistory.crossfadeArt(iv) {
+                it.setImageResource(android.R.drawable.ic_media_play)
+                it.tag = noneKey
+                it.alpha = 1f
+            }
+        }
+        setPlaceholder(nowPlayingMiniArt)
+        setPlaceholder(nowPlayingStripArt)
+        setPlaceholder(nowPlayingFullArt)
+    }
+
+    private fun resetNowPlayingArtGuard() {
+        lastAppliedArtKey = ""
+        lastArtDisplayed = false
+    }
+
+    private fun artUriFromMetadata(metadata: MediaMetadata): String? = listOf(
+        metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI),
+        metadata.getString(MediaMetadata.METADATA_KEY_ART_URI),
+        metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
+    ).firstOrNull { !it.isNullOrBlank() }
+
+    private fun showTrackHistory() {
+        val items = trackHistory.entries()
+        if (items.isEmpty()) {
+            showBanner("History", "No tracks logged yet — play something first.")
+            return
+        }
+        val root = FrameLayout(this)
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(withAlpha(BANNER_BASE, prefs.overlayOpacity), prefs.cornerRadius.coerceAtLeast(18))
+            setPadding(dp(28), dp(24), dp(28), dp(22))
+            elevation = dp(16).toFloat()
+        }
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, dp(14))
+        }
+        header.addView(TextView(this).apply {
+            text = "Recent tracks"
+            setTextColor(Color.WHITE)
+            textSize = scaled(22f)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        })
+        header.addView(TextView(this).apply {
+            text = "${items.size} logged locally · tap outside to close"
+            setTextColor(0xFF8A919D.toInt())
+            textSize = scaled(12f)
+            setPadding(0, dp(4), 0, 0)
+        })
+        card.addView(header)
+
+        val list = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        val scroll = android.widget.ScrollView(this).apply {
+            isFillViewport = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+        }
+        scroll.addView(list)
+        card.addView(scroll, LinearLayout.LayoutParams(
+            dp(520), dp(420)
+        ))
+
+        items.take(20).forEachIndexed { index, entry ->
+            if (index > 0) {
+                list.addView(View(this).apply {
+                    setBackgroundColor(0x22FFFFFF)
+                }, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(1)
+                ).also { it.topMargin = dp(2); it.bottomMargin = dp(2) })
+            }
+            list.addView(buildHistoryRow(entry))
+        }
+
+        card.addView(TextView(this).apply {
+            text = "Close"
+            setTextColor(Color.WHITE)
+            textSize = scaled(15f)
+            gravity = Gravity.CENTER
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            background = rounded(prefs.accentColor, 16)
+            setPadding(dp(28), dp(12), dp(28), dp(12))
+            setOnClickListener { safeRemove(root) }
+        }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).also { it.topMargin = dp(16) })
+
+        root.addView(card, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).also { it.gravity = Gravity.CENTER })
+        val lp = baseParams(focusable = true).apply {
+            width = WindowManager.LayoutParams.MATCH_PARENT
+            height = WindowManager.LayoutParams.MATCH_PARENT
+            gravity = Gravity.CENTER
+            flags = flags or WindowManager.LayoutParams.FLAG_DIM_BEHIND
+            dimAmount = 0.55f
+        }
+        if (!safeAddView(root, lp)) return
+        root.setOnClickListener { safeRemove(root) }
+        card.setOnClickListener { /* consume */ }
+    }
+
+    private fun buildHistoryRow(entry: TrackHistory.Entry): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(8), 0, dp(8))
+        }
+        val art = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            background = rounded(0xFF2A303A.toInt(), 12)
+            clipToOutline = true
+            setImageResource(android.R.drawable.ic_media_play)
+        }
+        row.addView(art, LinearLayout.LayoutParams(dp(58), dp(58)).also { it.rightMargin = dp(14) })
+
+        val textCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        textCol.addView(TextView(this).apply {
+            text = entry.title.ifBlank { "Unknown track" }
+            setTextColor(Color.WHITE)
+            textSize = scaled(16f)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        })
+        textCol.addView(TextView(this).apply {
+            text = entry.artist.ifBlank { "Unknown artist" }
+            setTextColor(0xFFB6BCC6.toInt())
+            textSize = scaled(13f)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            setPadding(0, dp(2), 0, 0)
+        })
+        textCol.addView(TextView(this).apply {
+            text = trackHistory.formatWhen(entry.at)
+            setTextColor(prefs.accentColor)
+            textSize = scaled(11f)
+            setPadding(0, dp(4), 0, 0)
+        })
+        row.addView(textCol)
+
+        trackHistory.loadArt(entry) { bmp ->
+            main.post {
+                if (bmp != null) art.setImageBitmap(bmp)
+            }
+        }
+        return row
     }
 
     private fun loadArtwork(metadata: MediaMetadata): Bitmap? {
@@ -1783,6 +2014,9 @@ class OverlayService : Service() {
         "network" to "⇅",
         "week" to "▦",
         "rain" to "☂︎",
+        "wind" to "💨",
+        "uv" to "☀",
+        "alert" to "⚠",
         "sun" to "☼",
         "agenda" to "◉",
         "ntfy" to "✉︎"
@@ -2076,7 +2310,10 @@ class OverlayService : Service() {
             if (!style.mono) typeface = Typeface.create("sans-serif-medium", if (style.bold) Typeface.BOLD else Typeface.NORMAL)
         }
         if (prefs.stripShowDate) stripDate = textSeg().apply { setTextColor(style.muted) }
-        if (prefs.stripShowContext) stripContext = textSeg("context")
+        if (prefs.stripShowContext) stripContext = textSeg("context").apply {
+            isClickable = true
+            setOnClickListener { showForegroundAppMenu() }
+        }
         if (prefs.stripShowWeather) stripWeather = textSeg("weather")
         if (prefs.stripShowBattery) stripBattery = textSeg("battery")
         if (prefs.stripShowNetwork) stripNetwork = textSeg("network").apply {
@@ -2119,8 +2356,14 @@ class OverlayService : Service() {
         if (prefs.stripShowWeek) stripWeek = textSeg("week")
         if (prefs.stripShowRain) stripRain = textSeg("rain")
         if (prefs.stripShowSun) stripSun = textSeg("sun")
+        if (prefs.stripShowWind) stripWind = textSeg("wind")
+        if (prefs.stripShowUv) stripUv = textSeg("uv")
+        if (prefs.stripShowWeatherAlert) stripWeatherAlert = textSeg("alert")
         if (prefs.stripShowAgenda) stripAgenda = textSeg("agenda")
-        if (prefs.stripShowNtfy) stripNtfy = textSeg("ntfy")
+        if (prefs.stripShowNtfy) stripNtfy = textSeg("ntfy").apply {
+            isClickable = true
+            setOnClickListener { showLastNtfyPreview() }
+        }
         if (prefs.stripShowNavButtons) {
             sep()
             stripNavSpacer = View(this).apply { layoutParams = LinearLayout.LayoutParams(0, 0, 1f) }
@@ -2318,7 +2561,7 @@ class OverlayService : Service() {
 
     // ---- toast banner ----------------------------------------------------
 
-    private fun showBanner(title: String, message: String) {
+    private fun showBanner(title: String, message: String, dismissSec: Int = prefs.bannerSeconds) {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(withAlpha(BANNER_BASE, prefs.overlayOpacity), prefs.cornerRadius)
@@ -2365,7 +2608,250 @@ class OverlayService : Service() {
                 .withEndAction { safeRemove(container) }.start()
         }
         card.setOnClickListener { main.removeCallbacks(dismiss); dismiss.run() }
-        main.postDelayed(dismiss, prefs.bannerSeconds * 1000L)
+        main.postDelayed(dismiss, dismissSec * 1000L)
+    }
+
+    // ---- strip tap actions -----------------------------------------------
+
+    private fun showLastNtfyPreview() {
+        if (prefs.topic.isBlank()) {
+            showBanner("ntfy", "Set a topic on the Notifications tab to receive push messages.")
+            return
+        }
+        if (lastNtfyTitle.isBlank() && lastNtfyMessage.isBlank()) {
+            showBanner(
+                "ntfy",
+                if (connected) "Connected — waiting for the first message on this topic."
+                else "Reconnecting to ${prefs.ntfyServer.ifBlank { "ntfy.sh" }}…"
+            )
+            return
+        }
+        val age = if (lastNtfyAtMs > 0) {
+            val mins = ((System.currentTimeMillis() - lastNtfyAtMs) / 60_000).toInt()
+            when {
+                mins < 1 -> "Just now"
+                mins < 60 -> "$mins min ago"
+                else -> "${mins / 60}h ago"
+            }
+        } else ""
+        val body = buildString {
+            append(lastNtfyMessage.ifBlank { "(no body)" })
+            if (age.isNotBlank()) append("\n\n").append(age)
+        }
+        showBanner(lastNtfyTitle.ifBlank { "ntfy message" }, body, dismissSec = 12)
+    }
+
+    private fun showForegroundAppMenu() {
+        val pkg = UiContextState.currentPackageName()
+        val label = UiContextState.displayLabel(this)
+        when (UiContextState.currentKind()) {
+            UiContextState.WindowKind.HOME -> {
+                showBanner("Home", "You're on the launcher — pick an app to open, or use the nav cluster.")
+                return
+            }
+            UiContextState.WindowKind.PORTAL_UI -> {
+                showBanner("Portal UI", "System panel in front — no app to manage.")
+                return
+            }
+            UiContextState.WindowKind.IME -> {
+                showBanner("Keyboard", "A keyboard is open — switch back to an app first.")
+                return
+            }
+            else -> if (pkg.isBlank()) {
+                showBanner("Unknown app", "Foreground context isn't available yet.")
+                return
+            }
+        }
+
+        val root = FrameLayout(this)
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(withAlpha(BANNER_BASE, prefs.overlayOpacity), prefs.cornerRadius)
+            setPadding(dp(28), dp(22), dp(28), dp(20))
+            elevation = dp(12).toFloat()
+        }
+        card.addView(TextView(this).apply {
+            text = label
+            setTextColor(Color.WHITE)
+            textSize = scaled(20f)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        })
+        card.addView(TextView(this).apply {
+            text = pkg
+            setTextColor(0xFF8A919D.toInt())
+            textSize = scaled(12f)
+            typeface = Typeface.MONOSPACE
+            setPadding(0, dp(4), 0, dp(14))
+        })
+
+        fun action(label: String, color: Int, tap: () -> Unit): TextView = TextView(this).apply {
+            text = label
+            setTextColor(Color.WHITE)
+            textSize = scaled(16f)
+            gravity = Gravity.CENTER
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            background = rounded(color, 14)
+            setPadding(dp(24), dp(14), dp(24), dp(14))
+            setOnClickListener { tap() }
+        }
+
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        row.addView(action("Open", prefs.accentColor) {
+            safeRemove(root)
+            launchForegroundApp(pkg)
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).also { it.rightMargin = dp(8) })
+        row.addView(action("App info", 0xFF5A6172.toInt()) {
+            safeRemove(root)
+            openAppInfo(pkg)
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).also { it.rightMargin = dp(8) })
+        row.addView(action("Force stop", 0xFFE5484D.toInt()) {
+            safeRemove(root)
+            forceStopForegroundApp(pkg, label)
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        card.addView(row, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).also { it.topMargin = dp(6) })
+
+        card.addView(TextView(this).apply {
+            text = "Cancel"
+            setTextColor(0xFF8A919D.toInt())
+            textSize = scaled(15f)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(16), 0, 0)
+            setOnClickListener { safeRemove(root) }
+        })
+
+        root.addView(card, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).also { it.gravity = Gravity.CENTER })
+        val lp = baseParams(focusable = true).apply {
+            width = WindowManager.LayoutParams.MATCH_PARENT
+            height = WindowManager.LayoutParams.MATCH_PARENT
+            gravity = Gravity.CENTER
+            flags = flags or WindowManager.LayoutParams.FLAG_DIM_BEHIND
+            dimAmount = 0.45f
+        }
+        if (!safeAddView(root, lp)) return
+        root.setOnClickListener { safeRemove(root) }
+        card.setOnClickListener { /* consume */ }
+    }
+
+    private fun launchForegroundApp(pkg: String) {
+        val launch = packageManager.getLaunchIntentForPackage(pkg)
+        if (launch == null) {
+            showBanner("Can't open", "No launcher activity for $pkg.")
+            return
+        }
+        runCatching { startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            .onFailure { showBanner("Can't open", it.message ?: "Launch failed.") }
+    }
+
+    private fun openAppInfo(pkg: String) {
+        runCatching {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.parse("package:$pkg")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+        }.onFailure { showBanner("App info", "Couldn't open settings for $pkg.") }
+    }
+
+    /** Best-effort stop: clears background work, then opens App info if a full force-stop isn't allowed. */
+    private fun forceStopForegroundApp(pkg: String, label: String) {
+        if (pkg == packageName) {
+            showBanner("Force stop", "Can't force-stop Portal Overlays from here.")
+            return
+        }
+        val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        am.killBackgroundProcesses(pkg)
+        val forced = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                am.javaClass.getMethod("forceStopPackage", String::class.java).invoke(am, pkg)
+                true
+            } else false
+        }.getOrDefault(false)
+        if (forced) {
+            showBanner("Force stopped", label)
+        } else {
+            openAppInfo(pkg)
+            showBanner(
+                "Force stop",
+                "Background work cleared. Tap Force stop in App info to fully stop $label — sideloaded apps " +
+                    "can't force-stop other apps directly on Portal."
+            )
+        }
+    }
+
+    // ---- nav accessibility warning ---------------------------------------
+
+    private fun navFeaturesWanted(): Boolean =
+        prefs.navEnabled || (prefs.stripEnabled && prefs.stripShowNavButtons)
+
+    private fun updateNavAccessibilityWarning() {
+        if (!canDrawOverlays() || !prefs.serviceEnabled) {
+            navWarningView?.let { safeRemove(it); navWarningView = null }
+            return
+        }
+        val need = navFeaturesWanted() && !NavAccessibilityService.isEnabled && !prefs.navWarningDismissed
+        if (!need) {
+            if (NavAccessibilityService.isEnabled) prefs.navWarningDismissed = false
+            navWarningView?.let { safeRemove(it); navWarningView = null }
+            return
+        }
+        if (navWarningView != null) return
+
+        val wrap = FrameLayout(this).apply { setPadding(dp(16), 0, dp(16), 0) }
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(0xFFE5484D.toInt(), 16)
+            setPadding(dp(20), dp(14), dp(20), dp(14))
+            elevation = dp(14).toFloat()
+        }
+        card.addView(TextView(this).apply {
+            text = "Floating nav inactive"
+            setTextColor(Color.WHITE)
+            textSize = scaled(16f)
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+        })
+        val detail = if (prefs.accessibilityBootRestoreFailed) {
+            "Portal wiped the accessibility service on boot and the app couldn't restore it. " +
+                "Re-run enable_portal_permissions.bat from a PC — Back / Home / Recents won't work until then."
+        } else {
+            "The Overlays accessibility service isn't running. Re-run enable_portal_permissions.bat " +
+                "from a PC (Portal clears it after every reboot)."
+        }
+        card.addView(TextView(this).apply {
+            text = detail
+            setTextColor(0xFFFFE8E8.toInt())
+            textSize = scaled(13f)
+            setPadding(0, dp(6), 0, dp(10))
+        })
+        card.addView(TextView(this).apply {
+            text = "Dismiss"
+            setTextColor(Color.WHITE)
+            textSize = scaled(14f)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            background = rounded(0x55FFFFFF, 10)
+            setPadding(dp(16), dp(8), dp(16), dp(8))
+            gravity = Gravity.CENTER
+            setOnClickListener {
+                prefs.navWarningDismissed = true
+                safeRemove(wrap)
+                navWarningView = null
+            }
+        }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+
+        wrap.addView(card, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+        val lp = baseParams().apply {
+            width = WindowManager.LayoutParams.MATCH_PARENT
+            gravity = Gravity.TOP
+            y = dp(72)
+        }
+        if (!safeAddView(wrap, lp)) return
+        navWarningView = wrap
     }
 
     // ---- breaking news ----------------------------------------------------
@@ -2577,9 +3063,16 @@ class OverlayService : Service() {
         stripWeek?.text = weekString()
         stripRain?.text = rainString()
         stripSun?.text = sunString()
+        stripWind?.text = windString()
+        stripUv?.text = uvString()
+        stripWeatherAlert?.text = weatherAlertString()
         stripAgenda?.text = agendaString()
-        stripNtfy?.text = if (prefs.topic.isBlank()) "no topic"
-            else if (connected) "ntfy connected" else "ntfy reconnecting…"
+        stripNtfy?.text = when {
+            prefs.topic.isBlank() -> "no topic"
+            !connected -> "ntfy reconnecting…"
+            lastNtfyTitle.isNotBlank() || lastNtfyMessage.isNotBlank() -> "ntfy · tap for last"
+            else -> "ntfy connected"
+        }
         updateStripIndicators()
         updateStripPlacement()
         // The Sky style's gradient drifts with the time of day — repaint the bar each tick.
@@ -2652,6 +3145,25 @@ class OverlayService : Service() {
         val icon = if (e.sunIsSunset) "☀" else "🌅"
         val span = if (h > 0) "${h}h${m}m" else "${m}m"
         return "$icon $span"
+    }
+
+    private fun windString(): String {
+        val w = weatherExtras.windKmh
+        return if (w.isNaN()) "…" else "💨 ${w.roundToInt()} km/h"
+    }
+
+    private fun uvString(): String {
+        val u = weatherExtras.uvIndex
+        return if (u.isNaN()) "…" else "UV ${String.format(Locale.US, "%.0f", u)}"
+    }
+
+    private fun weatherAlertString(): String {
+        val code = weatherExtras.weatherCode
+        return when {
+            code < 0 -> "…"
+            WeatherClient.isSevere(code) -> "⛈ alert"
+            else -> "ok"
+        }
     }
 
     /** Refresh the live status dots/bars (streaming, VPN, Wi-Fi). Called from the 1s tick. */
@@ -3024,7 +3536,10 @@ class OverlayService : Service() {
                     main.removeCallbacks(longPress)
                     if (pressFeedback) touchTarget.alpha = 1f
                     if (e.action == MotionEvent.ACTION_UP) {
-                        if (moved) prefs.setPos(posKey, lp.x, lp.y) else if (!longFired) onTap?.invoke()
+                        if (moved) {
+                            resolveWidgetCollisions(moveView, lp)
+                            prefs.setPos(posKey, lp.x, lp.y)
+                        } else if (!longFired) onTap?.invoke()
                     }
                     true
                 }
@@ -3050,17 +3565,136 @@ class OverlayService : Service() {
     }
 
     /**
-     * Keep a dragged overlay fully on screen and out of the corners: an edge margin on every side
-     * plus a larger top inset so widgets never tuck under Portal's top system pills.
+     * Keep a dragged overlay fully on screen and out of reserved chrome (status strip, ticker, edge
+     * now-playing bar, Portal top pills). An edge margin applies on every side.
      */
     private fun clampToScreen(view: View, x: Int, y: Int): Pair<Int, Int> {
+        val (bx, by) = clampToScreenMargins(view, x, y)
+        return pushOutOfSafeZones(view, bx, by)
+    }
+
+    /** Screen-edge clamp only — no reserved-zone avoidance. */
+    private fun clampToScreenMargins(view: View, x: Int, y: Int): Pair<Int, Int> {
         val dm = resources.displayMetrics
-        val margin = dp(12); val topInset = dp(64)
-        val w = if (view.width > 0) view.width else view.measuredWidth
-        val h = if (view.height > 0) view.height else view.measuredHeight
+        val margin = dp(12)
+        val topInset = dp(64)
+        val w = viewWidth(view)
+        val h = viewHeight(view)
         val maxX = (dm.widthPixels - w - margin).coerceAtLeast(margin)
         val maxY = (dm.heightPixels - h - margin).coerceAtLeast(topInset)
         return Pair(x.coerceIn(margin, maxX), y.coerceIn(topInset, maxY))
+    }
+
+    /** Reserved rectangles where draggable widgets must not sit (system + our own fixed overlays). */
+    private fun computeSafeZones(): List<Rect> {
+        val dm = resources.displayMetrics
+        val w = dm.widthPixels
+        val h = dm.heightPixels
+        val zones = mutableListOf<Rect>()
+        zones.add(Rect(0, 0, w, dp(64)))
+
+        if (prefs.stripEnabled && !stripUserHidden) {
+            val sh = if (stripHeightPx > 0) stripHeightPx else dp(36)
+            if (prefs.stripPosition == "top") zones.add(Rect(0, 0, w, sh))
+            else zones.add(Rect(0, h - sh, w, h))
+        }
+
+        if (prefs.tickerEnabled && prefs.tickerUrl.isNotBlank() && !stripUserHidden) {
+            val th = dp(30)
+            val top = prefs.tickerPosition == "top"
+            val sh = if (stripHeightPx > 0) stripHeightPx else dp(36)
+            when {
+                top && prefs.stripEnabled && prefs.stripPosition == "top" ->
+                    zones.add(Rect(0, sh, w, sh + th))
+                top -> zones.add(Rect(0, 0, w, th))
+                prefs.stripEnabled && prefs.stripPosition == "bottom" ->
+                    zones.add(Rect(0, h - sh - th, w, h - sh))
+                else -> zones.add(Rect(0, h - th, w, h))
+            }
+        }
+
+        if (prefs.nowPlayingEnabled && prefs.nowPlayingDockStyle == "edge" &&
+            nowPlayingView?.visibility == View.VISIBLE) {
+            val eh = dp(50)
+            if (prefs.nowPlayingEdgePosition == "top") zones.add(Rect(0, 0, w, eh))
+            else zones.add(Rect(0, h - eh, w, h))
+        }
+
+        if (navWarningView?.isAttachedToWindow == true) {
+            navWarningView?.let { v ->
+                val zone = viewBounds(v, (v.layoutParams as? WindowManager.LayoutParams)?.x ?: 0,
+                    (v.layoutParams as? WindowManager.LayoutParams)?.y ?: dp(72))
+                zones.add(zone)
+            }
+        }
+        return zones
+    }
+
+    private fun viewWidth(view: View): Int =
+        if (view.width > 0) view.width else view.measuredWidth.coerceAtLeast(view.minimumWidth)
+
+    private fun viewHeight(view: View): Int =
+        if (view.height > 0) view.height else view.measuredHeight.coerceAtLeast(view.minimumHeight)
+
+    private fun viewBounds(view: View, x: Int, y: Int): Rect {
+        val ww = viewWidth(view)
+        val hh = viewHeight(view)
+        return Rect(x, y, x + ww, y + hh)
+    }
+
+    private fun rectsOverlap(a: Rect, b: Rect): Boolean =
+        a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+
+    private fun pushOutOfSafeZones(view: View, x: Int, y: Int): Pair<Int, Int> {
+        var cx = x
+        var cy = y
+        repeat(10) {
+            var moved = false
+            val bounds = viewBounds(view, cx, cy)
+            for (zone in computeSafeZones()) {
+                if (!rectsOverlap(bounds, zone)) continue
+                val pushLeft = bounds.right - zone.left
+                val pushRight = zone.right - bounds.left
+                val pushUp = bounds.bottom - zone.top
+                val pushDown = zone.bottom - bounds.top
+                when (minOf(pushLeft, pushRight, pushUp, pushDown)) {
+                    pushLeft -> cx = zone.left - bounds.width() - dp(6)
+                    pushRight -> cx = zone.right + dp(6)
+                    pushUp -> cy = zone.top - bounds.height() - dp(6)
+                    else -> cy = zone.bottom + dp(6)
+                }
+                val clamped = clampToScreenMargins(view, cx, cy)
+                cx = clamped.first
+                cy = clamped.second
+                moved = true
+                break
+            }
+            if (!moved) return@repeat
+        }
+        return cx to cy
+    }
+
+    /** After a drag ends, nudge the widget aside if it still overlaps another draggable. */
+    private fun resolveWidgetCollisions(movedView: View, lp: WindowManager.LayoutParams) {
+        val gap = dp(8)
+        repeat(12) {
+            var hit = false
+            val b1 = viewBounds(movedView, lp.x, lp.y)
+            for ((other, olp) in draggables) {
+                if (other === movedView || !other.isAttachedToWindow) continue
+                val b2 = viewBounds(other, olp.x, olp.y)
+                if (!rectsOverlap(b1, b2)) continue
+                hit = true
+                lp.x = b2.right + gap
+                lp.y = b2.top
+                val (x, y) = clampToScreen(movedView, lp.x, lp.y)
+                lp.x = x
+                lp.y = y
+                runCatching { wm.updateViewLayout(movedView, lp) }
+                break
+            }
+            if (!hit) return@repeat
+        }
     }
 
     /**

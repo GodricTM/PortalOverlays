@@ -16,7 +16,7 @@ class ScreensaverPreviewActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        val s = ScreensaverScene(this) { finish() }
+        val s = ScreensaverScene(this, onExit = { finish() })
         scene = s
         setContentView(s.createView())
     }

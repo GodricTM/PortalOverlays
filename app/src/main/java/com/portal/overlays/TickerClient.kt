@@ -50,32 +50,31 @@ class TickerClient(
 
     /** Live crypto quotes from CoinGecko's keyless simple-price API: "BTC $64,210 ▲2.3%". */
     private fun fetchCrypto(): List<String> {
-        val ids = listOf("bitcoin", "ethereum", "solana", "ripple", "cardano", "dogecoin")
-        val sym = mapOf(
-            "bitcoin" to "BTC", "ethereum" to "ETH", "solana" to "SOL",
-            "ripple" to "XRP", "cardano" to "ADA", "dogecoin" to "DOGE"
-        )
+        val pairs = parseCryptoWatchlist()
+        if (pairs.isEmpty()) return emptyList()
+        val ids = pairs.map { it.second }.distinct()
         val body = fetch(
             "https://api.coingecko.com/api/v3/simple/price?ids=${ids.joinToString(",")}" +
                 "&vs_currencies=usd&include_24hr_change=true"
         ) ?: return emptyList()
         val obj = JSONObject(body)
-        return ids.mapNotNull { id ->
+        return pairs.mapNotNull { (sym, id) ->
             val o = obj.optJSONObject(id) ?: return@mapNotNull null
             val price = o.optDouble("usd", Double.NaN)
             if (price.isNaN()) return@mapNotNull null
             val chg = o.optDouble("usd_24h_change", 0.0)
-            "${sym[id]} ${formatUsd(price)} ${arrow(chg)}${formatPct(chg)}"
+            "$sym ${formatUsd(price)} ${arrow(chg)}${formatPct(chg)}"
         }
     }
 
     /** Live stock quotes from Stooq's keyless CSV light-quote: "AAPL $189.20 ▲0.8%" (since open). */
     private fun fetchStocks(): List<String> {
-        val symbols = listOf("aapl.us", "msft.us", "googl.us", "amzn.us", "nvda.us", "tsla.us")
+        val tickers = parseStockWatchlist()
+        if (tickers.isEmpty()) return emptyList()
+        val symbols = tickers.map { it.lowercase(Locale.US).removeSuffix(".us") + ".us" }
         val body = fetch(
             "https://stooq.com/q/l/?s=${symbols.joinToString(",")}&f=sd2t2ohlc&h&e=csv"
         ) ?: return emptyList()
-        // Header: Symbol,Date,Time,Open,High,Low,Close — change% computed close-vs-open (intraday).
         return body.trim().lines().drop(1).mapNotNull { line ->
             val c = line.split(",")
             if (c.size < 7) return@mapNotNull null
@@ -86,6 +85,23 @@ class TickerClient(
             val chg = if (open != null && open > 0.0) (close - open) / open * 100.0 else 0.0
             "$ticker ${formatUsd(close)} ${arrow(chg)}${formatPct(chg)}"
         }
+    }
+
+    /** `finance:crypto` or `finance:crypto:BTC,ETH,SOL` */
+    private fun parseCryptoWatchlist(): List<Pair<String, String>> {
+        val suffix = url.removePrefix("finance:crypto").trim().removePrefix(":").trim()
+        val syms = if (suffix.isBlank()) DEFAULT_CRYPTO else suffix.split(",").map { it.trim().uppercase(Locale.US) }.filter { it.isNotBlank() }
+        return syms.mapNotNull { sym ->
+            val id = CRYPTO_IDS[sym] ?: sym.lowercase(Locale.US)
+            sym to id
+        }
+    }
+
+    /** `finance:stocks` or `finance:stocks:AAPL,TSLA,NVDA` */
+    private fun parseStockWatchlist(): List<String> {
+        val suffix = url.removePrefix("finance:stocks").trim().removePrefix(":").trim()
+        return if (suffix.isBlank()) DEFAULT_STOCKS
+        else suffix.split(",").map { it.trim().uppercase(Locale.US) }.filter { it.isNotBlank() }
     }
 
     private fun arrow(chg: Double) = if (chg >= 0) "▲" else "▼"
@@ -166,7 +182,14 @@ class TickerClient(
         private const val TAG = "TickerClient"
         private const val MAX_ITEMS = 25
         private const val REFRESH_MS = 5 * 60_000L
-        private const val FINANCE_REFRESH_MS = 60_000L   // prices move — poll once a minute
+        private const val FINANCE_REFRESH_MS = 60_000L
+        private val DEFAULT_CRYPTO = listOf("BTC", "ETH", "SOL", "XRP", "ADA", "DOGE")
+        private val DEFAULT_STOCKS = listOf("AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA")
+        private val CRYPTO_IDS = mapOf(
+            "BTC" to "bitcoin", "ETH" to "ethereum", "SOL" to "solana", "XRP" to "ripple",
+            "ADA" to "cardano", "DOGE" to "dogecoin", "DOT" to "polkadot", "LINK" to "chainlink",
+            "AVAX" to "avalanche-2", "MATIC" to "matic-network",
+        )
         private val TITLE_RE = Regex("<title[^>]*>(.*?)</title>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         private val CDATA_RE = Regex("<!\\[CDATA\\[(.*?)]]>", RegexOption.DOT_MATCHES_ALL)
     }

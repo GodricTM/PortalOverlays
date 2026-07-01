@@ -36,6 +36,12 @@ class WeatherClient(
         val todaySunriseEpoch: Long = 0L,
         /** Today's sunset as epoch millis, or 0 if unknown (drives the Sky strip gradient). */
         val todaySunsetEpoch: Long = 0L,
+        /** Current wind speed at 10m in km/h, or NaN. */
+        val windKmh: Double = Double.NaN,
+        /** Current UV index, or NaN. */
+        val uvIndex: Double = Double.NaN,
+        /** WMO weather code from the current conditions. */
+        val weatherCode: Int = -1,
     )
 
     private val running = AtomicBoolean(false)
@@ -93,7 +99,7 @@ class WeatherClient(
         val unit = if (fahrenheit) "&temperature_unit=fahrenheit" else ""
         val obj = getJson(
             "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon" +
-                "&current=temperature_2m,weather_code" +
+                "&current=temperature_2m,weather_code,wind_speed_10m,uv_index" +
                 "&minutely_15=precipitation" +
                 "&daily=sunrise,sunset" +
                 "&forecast_days=2&timezone=auto$unit"
@@ -101,6 +107,8 @@ class WeatherClient(
         val cur = obj.optJSONObject("current") ?: return null
         val temp = cur.optDouble("temperature_2m", Double.NaN)
         val code = cur.optInt("weather_code", -1)
+        val wind = cur.optDouble("wind_speed_10m", Double.NaN)
+        val uv = cur.optDouble("uv_index", Double.NaN)
         if (temp.isNaN()) return null
         val symbol = if (fahrenheit) "°F" else "°C"
 
@@ -116,11 +124,12 @@ class WeatherClient(
             sunIsSunset = sunIsSunset,
             todaySunriseEpoch = todaySunrise,
             todaySunsetEpoch = todaySunset,
+            windKmh = wind,
+            uvIndex = uv,
+            weatherCode = code,
         )
-        return Triple("${Math.round(temp)}$symbol", describe(code), extras)
+        return Triple("${Math.round(temp)}$symbol", Companion.describe(code), extras)
     }
-
-    /** First 15-min bucket within the next hour whose precipitation > 0, as UTC epoch millis. */
     private fun nextRainEpoch(obj: JSONObject, offsetSec: Long): Long? {
         val m = obj.optJSONObject("minutely_15") ?: return null
         val times = m.optJSONArray("time") ?: return null
@@ -170,18 +179,23 @@ class WeatherClient(
         } finally { c.disconnect() }
     }
 
-    /** WMO weather interpretation codes → short label + emoji. */
-    private fun describe(code: Int): String = when (code) {
-        0 -> "☀️ Clear"
-        1, 2 -> "🌤️ Partly cloudy"
-        3 -> "☁️ Cloudy"
-        45, 48 -> "🌫️ Fog"
-        51, 53, 55, 56, 57 -> "🌦️ Drizzle"
-        61, 63, 65, 66, 67, 80, 81, 82 -> "🌧️ Rain"
-        71, 73, 75, 77, 85, 86 -> "🌨️ Snow"
-        95, 96, 99 -> "⛈️ Storm"
-        else -> "Weather"
-    }
+    companion object {
+        private const val TAG = "WeatherClient"
 
-    companion object { private const val TAG = "WeatherClient" }
+        /** WMO weather interpretation codes → short label + emoji. */
+        fun describe(code: Int): String = when (code) {
+            0 -> "☀️ Clear"
+            1, 2 -> "🌤️ Partly cloudy"
+            3 -> "☁️ Cloudy"
+            45, 48 -> "🌫️ Fog"
+            51, 53, 55, 56, 57 -> "🌦️ Drizzle"
+            61, 63, 65, 66, 67, 80, 81, 82 -> "🌧️ Rain"
+            71, 73, 75, 77, 85, 86 -> "🌨️ Snow"
+            95, 96, 99 -> "⛈️ Storm"
+            else -> "Weather"
+        }
+
+        /** True for WMO codes that indicate thunder / hail — worth a strip alert line. */
+        fun isSevere(code: Int): Boolean = code in listOf(95, 96, 99)
+    }
 }

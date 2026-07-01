@@ -50,6 +50,14 @@ class NowPlayingVisualizerView(context: Context) : View(context) {
     // Per-bar displayed value, eased toward the target each frame so motion stays fluid even when the
     // reactor's band updates arrive in bursts (Portal's shared mic delivers choppy data).
     private val display = FloatArray(96)
+    /** Brief boost when playback position jumps (phone skip) — decays each frame. */
+    private var seekPulse = 0f
+
+    /** Call when a large seek/skip is detected so the visualizer flares once. */
+    fun pulseSeek() {
+        seekPulse = 1f
+        postInvalidateOnAnimation()
+    }
 
     /** Energy 0..1 for a bar at position [frac]; live audio when reacting, else a synthetic wiggle. */
     private fun energy(frac: Float, t: Float, i: Int): Float {
@@ -64,10 +72,14 @@ class NowPlayingVisualizerView(context: Context) : View(context) {
         val a = abs(sin(t * 2.4f + i * 0.29f))
         val b = abs(sin(t * 1.35f - i * 0.17f + 1.7f))
         val c = abs(sin(t * 3.1f + i * 0.071f))
-        return (0.18f + 0.44f * a + 0.28f * b + 0.10f * c) * idle
+        return (0.18f + 0.44f * a + 0.28f * b + 0.10f * c) * idle * (1f + seekPulse * 0.85f)
     }
 
     override fun onDraw(canvas: Canvas) {
+        if (seekPulse > 0.02f) {
+            seekPulse *= 0.90f
+            if (animating) postInvalidateOnAnimation()
+        } else seekPulse = 0f
         super.onDraw(canvas)
         val w = width.toFloat()
         val h = height.toFloat()

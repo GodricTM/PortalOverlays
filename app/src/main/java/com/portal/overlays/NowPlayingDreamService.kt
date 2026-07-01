@@ -19,7 +19,7 @@ class NowPlayingDreamService : DreamService() {
         super.onAttachedToWindow()
         isInteractive = true            // receive the tap that dismisses the dream
         isFullscreen = true
-        val s = ScreensaverScene(this) { finish() }
+        val s = ScreensaverScene(this, onExit = { finish() }, showGestureHint = true)
         scene = s
         isScreenBright = s.keepBright()
         setContentView(s.createView())

@@ -9,12 +9,19 @@ Working tracker for release prep and follow-up work. Newest items at top.
 - **Startup defaults** - Clock starts off; Now Playing and the bottom status strip start on.
 - **Status strip** - foreground context, weather, network speed, Wi-Fi, week, rain, sunrise/sunset, and optional nav buttons are in place by default.
 - **Ticker** - live source presets are available, and the ticker now respects the chosen edge placement.
-- **Widget refreshes** - simple on/off changes now use narrower update paths instead of rebuilding every overlay.
+- **Control deck** — ten tabs; full-height content pane per tab; settings search with browse catalog
+      and ranked section results (~40 entries).
 - **Strip nav buttons** - the optional Back / Home / Recents buttons have been widened for better touch use.
 - **Navigation** - floating Back / Home / Recents and the strip-mounted nav option are already implemented.
 - **Notifications** - ntfy banners and mirrored notifications remain available; ntfy can point at a self-hosted server (custom URL + optional access token) to keep messages private.
 
 ## Shipped work
+- [x] v1.8 batch (Unreleased) — screensaver remote (tap/swipe art, double-tap clock + one-time hint
+      toast), track history with cover thumbnails, album-art crossfade, Open-Meteo strip extras
+      (wind/UV/alert), finance watchlists, seek-jump visualizer pulse, vector transport buttons,
+      strip taps (foreground app menu, ntfy preview), widget safe zones + collision nudging, post-boot
+      nav banner, Labs section for live-audio reactor, full-height control deck (TabScaffold), improved
+      settings search (full-panel browse + ranked section results), now-playing cover art stability fix.
 - [x] Screensaver / DreamService (Unreleased) — PO ships its own screen saver (`NowPlayingDreamService`
       + shared `ScreensaverScene`) because a running dream composites over `TYPE_APPLICATION_OVERLAY`,
       hiding floating overlays. Re-hosts the now-playing card (cover, track, bouncing bars), clock/date
@@ -155,8 +162,10 @@ Ordered roughly by impact-to-effort. Tackle top-down; check items off as shipped
 - [ ] **Routines**: a small rules engine ("at sunset → Night strip + dim screensaver").
 
 ### Decisions to confirm next session
-- [ ] Keep the experimental live-audio reactor (off by default) or remove the toggle entirely?
-- [ ] Version bump + release build for the Unreleased screensaver/visualizer/lock-nav work.
+- [x] Live-audio reactor — moved to **Settings → Labs** (collapsed by default); removed from Now
+      Playing and Screensaver tabs so users don't think the visualizer is broken.
+- [ ] Version bump + release build for the Unreleased v1.8 batch (screensaver remote, history, search,
+      strip extras, transport icons, etc.).
 
 ## Next up
 - [ ] Shuffle / repeat on Now Playing — removed for now: the framework `setShuffleMode`/`setRepeatMode`

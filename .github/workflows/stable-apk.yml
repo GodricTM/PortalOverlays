@@ -1,0 +1,27 @@
+name: Attach stable-named APK
+
+# Keeps a version-independent PortalOverlays.apk asset on every release, so
+# https://github.com/GodricTM/PortalOverlays/releases/latest/download/PortalOverlays.apk
+# always resolves to the newest build (used by the Immortal app catalog entry).
+
+on:
+  release:
+    types: [published, edited]
+
+permissions:
+  contents: write
+
+jobs:
+  alias:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Copy the versioned APK to a stable name
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p '*-release.apk' -D /tmp
+          apk="$(ls /tmp/*-release.apk | head -1)"
+          cp "$apk" /tmp/PortalOverlays.apk
+          gh release upload "$TAG" /tmp/PortalOverlays.apk -R "$GITHUB_REPOSITORY" --clobber
