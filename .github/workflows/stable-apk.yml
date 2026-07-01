@@ -7,16 +7,22 @@ name: Attach stable-named APK
 # Only fires on 'published' (not 'edited') so the workflow's own asset upload
 # can't re-trigger it into a loop. The 'published' event can arrive before the
 # release's assets finish attaching, so we wait for the versioned APK first.
+# workflow_dispatch lets you re-attach the stable APK to any tag by hand.
 
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to (re)attach the stable APK to (e.g. v1.8)"
+        required: true
 
 permissions:
   contents: write
 
 concurrency:
-  group: stable-apk-${{ github.event.release.tag_name }}
+  group: stable-apk-${{ github.event.release.tag_name || inputs.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -26,19 +32,21 @@ jobs:
       - name: Copy the versioned APK to a stable name
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           # Wait for the versioned *-release.apk to attach (published can fire first).
+          apk=""
           for i in $(seq 1 20); do
+            rm -f /tmp/*-release.apk 2>/dev/null || true
             if gh release download "$TAG" -R "$REPO" -p '*-release.apk' -D /tmp --clobber; then
-              break
+              apk="$(ls /tmp/*-release.apk 2>/dev/null | head -1 || true)"
+              [ -n "$apk" ] && break
             fi
             echo "waiting for versioned APK to attach (attempt $i)…"
             sleep 5
           done
-          apk="$(ls /tmp/*-release.apk 2>/dev/null | head -1 || true)"
           if [ -z "$apk" ]; then
             echo "::error::no versioned *-release.apk found on release $TAG"
             exit 1
