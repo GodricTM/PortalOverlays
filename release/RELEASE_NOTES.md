@@ -4,6 +4,14 @@ The screensaver becomes a remote control, the now-playing card gains track histo
 and the control deck gets a full settings search — plus status-strip weather extras, finance
 watchlists, and a batch of Now Playing and strip polish.
 
+## Fixed
+
+- **Finish-setup screen stuck on a remote / Portal TV** ([#3](https://github.com/GodricTM/PortalOverlays/issues/3))
+  — the first-run walkthrough is a modal drawn over the control deck, so a D-pad could keep moving
+  focus on the deck behind it and never reach the **Done** button. The button now takes focus when
+  the screen appears, and once "Draw over other apps" is granted the remote's **OK / Enter** closes
+  it from anywhere.
+
 ## What's in this release
 
 - **Screensaver as a remote** — on the idle/dream screen: **tap** album art to skip, **swipe**
