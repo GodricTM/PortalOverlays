@@ -45,6 +45,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   history, weather extras, and finance URL formats.
 
 ### Fixed
+- **Finish-setup screen stuck on a remote (Portal TV)** — the first-run walkthrough is a modal over
+  the control deck, so a D-pad could keep moving focus on the deck behind it and never reach the
+  **Done** button ([#3](https://github.com/GodricTM/PortalOverlays/issues/3)). The button now takes
+  focus when the screen appears, and once the required "Draw over other apps" permission is granted
+  the remote's **OK / Enter** dismisses the screen from anywhere.
 - **Now-playing cover art** — album art no longer disappears when opening the full card or rebuilding
   the dock; art is bound per view and only crossfades when the track or source actually changes (no
   more constant refresh flicker).

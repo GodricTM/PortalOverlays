@@ -61,7 +61,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
@@ -169,7 +176,30 @@ private fun Deck() {
     fun syncWidgets() { if (running) OverlayService.send(context, OverlayService.ACTION_SYNC_WIDGETS) }
     fun syncTicker() { if (running) OverlayService.send(context, OverlayService.ACTION_SYNC_TICKER) }
 
-    Box(Modifier.fillMaxSize()) {
+    // Dismiss the first-run walkthrough. Extracted so a remote's OK/Enter can trigger it too (below).
+    val finishOnboarding: () -> Unit = {
+        prefs.onboardingDone = true
+        showOnboarding = false
+        // If overlays are switched on, refresh now that permission may have just been granted.
+        if (running) OverlayService.send(context, OverlayService.ACTION_REFRESH)
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            // Portal TV / remote: the walkthrough is a Compose modal over a focusable control deck, so
+            // a D-pad can keep moving focus on the deck behind it and never reach the "Done" button.
+            // Once the required "Draw over other apps" permission is granted, let the remote's OK/Enter
+            // dismiss the finish screen from anywhere on screen.
+            .onPreviewKeyEvent { e ->
+                if (showOnboarding && canOverlay &&
+                    (e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter)
+                ) {
+                    if (e.type == KeyEventType.KeyUp) finishOnboarding()
+                    true // consume down + up so the deck behind never acts on the press
+                } else false
+            }
+    ) {
         Row(Modifier.fillMaxSize().background(BG)) {
             Rail(
                 selected = tab,
@@ -241,12 +271,7 @@ private fun Deck() {
             OnboardingOverlay(
                 accent = accent,
                 canOverlay = canOverlay, accEnabled = accEnabled, notifAccess = notifAccess,
-                onDone = {
-                    prefs.onboardingDone = true
-                    showOnboarding = false
-                    // If overlays are switched on, refresh now that permission may have just been granted.
-                    if (running) OverlayService.send(context, OverlayService.ACTION_REFRESH)
-                }
+                onDone = finishOnboarding
             )
         }
     }
@@ -279,6 +304,9 @@ private fun OnboardingOverlay(
     accent: Color, canOverlay: Boolean, accEnabled: Boolean, notifAccess: Boolean, onDone: () -> Unit
 ) {
     val context = LocalContext.current
+    // Land D-pad focus on the primary action so a remote can act on the finish screen (Portal TV).
+    val doneFocus = remember { FocusRequester() }
+    LaunchedEffect(canOverlay) { if (canOverlay) runCatching { doneFocus.requestFocus() } }
     Box(
         Modifier.fillMaxSize().background(Color(0xF2070809))
             // Consume taps on the scrim so they don't reach the control deck behind it.
@@ -319,7 +347,7 @@ private fun OnboardingOverlay(
             Spacer(Modifier.height(26.dp))
             Button(
                 onClick = onDone,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
+                modifier = Modifier.fillMaxWidth().height(56.dp).focusRequester(doneFocus),
                 shape = RoundedCornerShape(13.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (canOverlay) accent else PANEL2,
