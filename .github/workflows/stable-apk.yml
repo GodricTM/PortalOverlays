@@ -3,13 +3,21 @@ name: Attach stable-named APK
 # Keeps a version-independent PortalOverlays.apk asset on every release, so
 # https://github.com/GodricTM/PortalOverlays/releases/latest/download/PortalOverlays.apk
 # always resolves to the newest build (used by the Immortal app catalog entry).
+#
+# Only fires on 'published' (not 'edited') so the workflow's own asset upload
+# can't re-trigger it into a loop. The 'published' event can arrive before the
+# release's assets finish attaching, so we wait for the versioned APK first.
 
 on:
   release:
-    types: [published, edited]
+    types: [published]
 
 permissions:
   contents: write
+
+concurrency:
+  group: stable-apk-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
 
 jobs:
   alias:
@@ -19,9 +27,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p '*-release.apk' -D /tmp
-          apk="$(ls /tmp/*-release.apk | head -1)"
+          # Wait for the versioned *-release.apk to attach (published can fire first).
+          for i in $(seq 1 20); do
+            if gh release download "$TAG" -R "$REPO" -p '*-release.apk' -D /tmp --clobber; then
+              break
+            fi
+            echo "waiting for versioned APK to attach (attempt $i)…"
+            sleep 5
+          done
+          apk="$(ls /tmp/*-release.apk 2>/dev/null | head -1 || true)"
+          if [ -z "$apk" ]; then
+            echo "::error::no versioned *-release.apk found on release $TAG"
+            exit 1
+          fi
           cp "$apk" /tmp/PortalOverlays.apk
-          gh release upload "$TAG" /tmp/PortalOverlays.apk -R "$GITHUB_REPOSITORY" --clobber
+          gh release upload "$TAG" /tmp/PortalOverlays.apk -R "$REPO" --clobber
