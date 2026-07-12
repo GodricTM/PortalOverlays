@@ -42,8 +42,8 @@ sealed class UpdateResult {
  * Over-the-air update check. Mirrors the approach used by Immortal: a small
  * `version.json` is hosted on GitHub, this fetches it (cache-busted), compares
  * `versionCode` (long) to what's installed, and surfaces the result via either
- * a system notification (silent auto-check on launch) or an in-app dialog
- * (manual "Check for updates" button).
+ * a system notification (background / when auto-prompt is off) or an in-app dialog
+ * (automatic on launch and manual "Check for updates").
  */
 object UpdateChecker {
 
@@ -51,8 +51,12 @@ object UpdateChecker {
     var manifestUrl: String =
         "https://raw.githubusercontent.com/GodricTM/PortalOverlays/main/version.json"
 
+    /** Minimum time between throttled automatic checks (resume + overlay service). */
+    const val AUTO_CHECK_INTERVAL_MS = 4L * 60 * 60 * 1000
+
     private const val NOTIF_CHANNEL_ID = "updates"
-    private const val NOTIF_ID = 1001
+    /** Distinct from [OverlayService]'s foreground notification id (1001). */
+    private const val NOTIF_ID = 1002
 
     private val io = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
@@ -75,11 +79,31 @@ object UpdateChecker {
         }
     }
 
-    /** Silent check on app launch — posts a system notification if newer. */
-    fun autoCheck(context: Context) {
+    /** Whether an automatic in-app prompt should appear for this remote build. */
+    fun shouldAutoPrompt(prefs: Prefs, remoteVersionCode: Long, force: Boolean = false): Boolean =
+        force || remoteVersionCode > prefs.updateDismissedVersionCode
+
+    /**
+     * Throttled check from [OverlayService] — posts a notification when a newer build is available
+     * and the user has not dismissed that release. Opening the notification launches the in-app updater.
+     */
+    fun surfaceBackgroundUpdate(context: Context) {
+        val prefs = Prefs(context.applicationContext)
+        val now = System.currentTimeMillis()
+        if (now - prefs.updateLastCheckMs < AUTO_CHECK_INTERVAL_MS) return
+        prefs.updateLastCheckMs = now
         checkForUpdate(context) { result ->
-            if (result is UpdateResult.Available) notify(context, result.info)
+            if (result is UpdateResult.Available &&
+                shouldAutoPrompt(prefs, result.info.versionCode)
+            ) {
+                notify(context, result.info)
+            }
         }
+    }
+
+    fun cancelNotification(context: Context) {
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.cancel(NOTIF_ID)
     }
 
     /**
@@ -163,10 +187,14 @@ object UpdateChecker {
     }
 
     /** Post a heads-up-style notification pointing at the newer build. */
+    internal fun postUpdateNotification(context: Context, info: UpdateInfo) = notify(context, info)
+
     private fun notify(context: Context, info: UpdateInfo) {
         ensureChannel(context)
-        // Open the app's About tab so the user can update in-app, rather than a browser.
-        val open = Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        // Open the in-app updater dialog (not a browser).
+        val open = Intent(context, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            .putExtra(MainActivity.EXTRA_PROMPT_UPDATE, true)
         val pi = PendingIntent.getActivity(
             context, 0, open,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE

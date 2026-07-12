@@ -10,6 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.9] - 2026-07-12
 
 ### Added
+- **Automatic update popup** — on launch (and about every 4h when returning to the app), checks
+  `version.json` on GitHub and shows an in-app **Update available** dialog with release notes and
+  **Update now**. **Later** skips that version until something newer ships. Toggle in **About →
+  Updates**. Background notification when overlays are running if auto-prompt is off.
+- **Pinned dock polish** — long-press a strip icon for Open / App info / Move left / Move right /
+  Unpin / Reorder in settings. In **Bottom bar → Pinned apps**, drag the **≡** handle (or use ↑ ↓)
+  to reorder; order matches left → right on the strip.
 - **Pinned app icons on the strip** — up to 8 shortcuts show as tappable app icons on the right side
   of the bottom bar; active app gets an accent ring. Toggle **Show pinned icons on strip** in
   **Bottom bar → Pinned apps**.

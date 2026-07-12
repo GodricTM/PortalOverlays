@@ -26,6 +26,19 @@ class Prefs(context: Context) {
     var onboardingDone: Boolean
         get() = bool("onboardingDone", false); set(v) = setBool("onboardingDone", v)
 
+    // ---- updates ----------------------------------------------------------
+    /** When true, opening the app shows an in-app popup when a newer GitHub release is available. */
+    var updateAutoPrompt: Boolean
+        get() = bool("updateAutoPrompt", true); set(v) = setBool("updateAutoPrompt", v)
+    /** Remote [versionCode] dismissed with "Later" — won't auto-prompt again until something newer ships. */
+    var updateDismissedVersionCode: Long
+        get() = sp.getLong("updateDismissedVersionCode", 0L)
+        set(v) = sp.edit().putLong("updateDismissedVersionCode", v).apply()
+    /** Wall-clock ms of the last automatic update check (throttles resume / background checks). */
+    var updateLastCheckMs: Long
+        get() = sp.getLong("updateLastCheckMs", 0L)
+        set(v) = sp.edit().putLong("updateLastCheckMs", v).apply()
+
     // ---- ntfy -------------------------------------------------------------
     var topic: String
         get() = str("topic", ""); set(v) = setStr("topic", v.trim())
@@ -240,6 +253,23 @@ class Prefs(context: Context) {
 
     fun setStripPinnedAppList(pkgs: List<String>) {
         stripPinnedApps = pkgs.map { it.trim() }.filter { it.isNotBlank() }.distinct().take(8).joinToString(",")
+    }
+
+    /** Swap a pinned app one slot left (−1) or right (+1). Returns false if already at the edge. */
+    fun moveStripPinnedApp(pkg: String, delta: Int): Boolean {
+        if (delta !in -1..1 || delta == 0) return false
+        val list = stripPinnedAppList().toMutableList()
+        val i = list.indexOf(pkg)
+        if (i < 0) return false
+        val j = i + delta
+        if (j !in list.indices) return false
+        list[i] = list[j].also { list[j] = list[i] }
+        setStripPinnedAppList(list)
+        return true
+    }
+
+    fun unpinStripApp(pkg: String) {
+        setStripPinnedAppList(stripPinnedAppList().filterNot { it == pkg })
     }
 
     /** Show pinned app icons as tappable chips on the right side of the strip. */

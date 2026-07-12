@@ -13,7 +13,8 @@ A floating HUD for sideloaded Meta Portal devices. Draws widgets, banners, mirro
 - **Status strip / bottom bar** with time, date, foreground app / Portal UI label, weather, battery,
   ntfy state, live network speed, ISO week, rain-in-next-hour, sunrise/sunset countdown, streaming,
   VPN, and Wi-Fi indicators, plus optional wider Back / Home / Recents buttons on the right
-- **Pinned app dock on the strip** — up to 8 app icons on the right side of the bar; tap to launch
+- **Pinned app dock on the strip** — up to 8 app icons on the right side of the bar; tap to launch,
+  long-press for App info / Unpin / Move. Reorder in **Bottom bar → Pinned apps** (drag ≡ or ↑ ↓).
 - **Strip tap actions** — assign opens (Immortal screens, alarms, any app) per segment
 - **Accent follows foreground app** — optional icon-colour tint on the strip background
 - **Bottom bar hide / restore** — eye-off icon collapses the strip (and the ticker that rides with
@@ -64,9 +65,11 @@ A floating HUD for sideloaded Meta Portal devices. Draws widgets, banners, mirro
   weather location, and weather units
 - **Narrow update paths** so ticker changes restart only the ticker, while simple widget toggles do
   not tear down the entire overlay stack
-- **In-app updates** — **About → Check for updates** compares `versionCode` against
-  [`version.json`](version.json) on GitHub and installs newer releases over the top (same pattern as
-  Immortal). Immortal's app store catalog entry also pins `versionCode` for update detection.
+- **In-app updates** — automatic popup on launch when a new GitHub release is published (toggle in
+  **About → Updates**), plus **Check for updates** any time. Compares `versionCode` against
+  [`version.json`](version.json) and installs over the top (same pattern as Immortal). Immortal's
+  store uses `releases/latest/download/PortalOverlays.apk` plus a catalog `versionCode` bump on
+  each release for update detection.
 
 ## Control panel
 

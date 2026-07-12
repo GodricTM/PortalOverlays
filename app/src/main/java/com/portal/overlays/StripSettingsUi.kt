@@ -2,6 +2,7 @@ package com.portal.overlays
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,7 +25,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -65,8 +68,8 @@ private fun PinnedAppsSection(
     var pickerOpen by remember { mutableStateOf(false) }
     Text("Pinned apps", color = TextMain, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
     Text(
-        "App icons appear on the right side of the bottom bar — tap to launch. " +
-            "On Home, tapping the foreground-app label also opens this list as a menu.",
+        "App icons appear on the right side of the bottom bar — tap to launch, long-press for " +
+            "App info / Unpin / Move. Order here is left → right on the strip.",
         color = Muted,
         fontSize = 13.sp,
         lineHeight = 19.sp,
@@ -80,34 +83,26 @@ private fun PinnedAppsSection(
     if (pinned.isEmpty()) {
         Text("No pinned apps yet.", color = Muted, fontSize = 14.sp)
     } else {
-        pinned.forEach { pkg ->
-            val label =
-                remember(pkg) {
-                    StripLaunch.installedLaunchables(context).find { it.packageName == pkg }?.label ?: pkg
-                }
-            Row(
-                Modifier.fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Panel2)
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(label, color = TextMain, fontSize = 16.sp)
-                    Text(pkg, color = Muted, fontSize = 12.sp)
-                }
-                Text(
-                    "Remove",
-                    color = Color(0xFFE5484D),
-                    fontSize = 14.sp,
-                    modifier =
-                        Modifier.clip(RoundedCornerShape(8.dp)).clickable {
-                            pinned = pinned.filterNot { it == pkg }
-                            prefs.setStripPinnedAppList(pinned)
-                            refresh()
-                        }.padding(8.dp),
-                )
-            }
+        pinned.forEachIndexed { index, pkg ->
+            PinnedAppRow(
+                pkg = pkg,
+                index = index,
+                count = pinned.size,
+                accent = accent,
+                onNudge = { delta ->
+                    val moved = prefs.moveStripPinnedApp(pkg, delta)
+                    if (moved) {
+                        pinned = prefs.stripPinnedAppList()
+                        refresh()
+                    }
+                    moved
+                },
+                onRemove = {
+                    pinned = pinned.filterNot { it == pkg }
+                    prefs.setStripPinnedAppList(pinned)
+                    refresh()
+                },
+            )
             Spacer(Modifier.height(6.dp))
         }
     }
@@ -125,6 +120,88 @@ private fun PinnedAppsSection(
                 pickerOpen = false
                 refresh()
             },
+        )
+    }
+}
+
+@Composable
+private fun PinnedAppRow(
+    pkg: String,
+    index: Int,
+    count: Int,
+    accent: Color,
+    onNudge: (delta: Int) -> Boolean,
+    onRemove: () -> Unit,
+) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val label =
+        remember(pkg) {
+            StripLaunch.installedLaunchables(context).find { it.packageName == pkg }?.label ?: pkg
+        }
+    val rowHeight = 56.dp
+    var dragAccum by remember(pkg) { mutableStateOf(0f) }
+    Row(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(Panel2)
+            .pointerInput(pkg) {
+                val threshold = with(density) { rowHeight.toPx() * 0.55f }
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { dragAccum = 0f },
+                    onDragEnd = { dragAccum = 0f },
+                    onDragCancel = { dragAccum = 0f },
+                    onDrag = { change, amount ->
+                        change.consume()
+                        dragAccum += amount.y
+                        while (dragAccum > threshold) {
+                            if (!onNudge(+1)) break
+                            dragAccum -= threshold
+                        }
+                        while (dragAccum < -threshold) {
+                            if (!onNudge(-1)) break
+                            dragAccum += threshold
+                        }
+                    },
+                )
+            }
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "≡",
+            color = Muted,
+            fontSize = 18.sp,
+            modifier = Modifier.padding(horizontal = 6.dp),
+        )
+        Column(Modifier.weight(1f).padding(horizontal = 4.dp)) {
+            Text(label, color = TextMain, fontSize = 16.sp)
+            Text(pkg, color = Muted, fontSize = 12.sp)
+        }
+        Text(
+            "↑",
+            color = if (index > 0) accent else Muted.copy(alpha = 0.35f),
+            fontSize = 18.sp,
+            modifier =
+                Modifier.clip(RoundedCornerShape(8.dp)).clickable(enabled = index > 0) {
+                    onNudge(-1)
+                }.padding(horizontal = 8.dp, vertical = 6.dp),
+        )
+        Text(
+            "↓",
+            color = if (index < count - 1) accent else Muted.copy(alpha = 0.35f),
+            fontSize = 18.sp,
+            modifier =
+                Modifier.clip(RoundedCornerShape(8.dp)).clickable(enabled = index < count - 1) {
+                    onNudge(+1)
+                }.padding(horizontal = 8.dp, vertical = 6.dp),
+        )
+        Text(
+            "Remove",
+            color = Color(0xFFE5484D),
+            fontSize = 14.sp,
+            modifier =
+                Modifier.clip(RoundedCornerShape(8.dp)).clickable { onRemove() }.padding(8.dp),
         )
     }
 }

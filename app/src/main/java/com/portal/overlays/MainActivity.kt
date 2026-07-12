@@ -121,9 +121,19 @@ private enum class Tab(val glyph: String, val label: String) {
 }
 
 class MainActivity : ComponentActivity() {
+    /** Incremented when a notification (or intent extra) requests the in-app update dialog. */
+    val updatePromptTick = mutableStateOf(0)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { Deck() }
+        if (intent.getBooleanExtra(EXTRA_PROMPT_UPDATE, false)) updatePromptTick.value++
+        setContent { Deck(activity = this) }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_PROMPT_UPDATE, false)) updatePromptTick.value++
     }
 
     override fun onResume() {
@@ -135,10 +145,16 @@ class MainActivity : ComponentActivity() {
             OverlayService.send(this, OverlayService.ACTION_REFRESH)
         }
     }
+
+    companion object {
+        const val EXTRA_PROMPT_UPDATE = "prompt_update"
+    }
 }
 
+private enum class UpdateCheckTrigger { Launch, Resume, Manual, NotificationTap }
+
 @Composable
-private fun Deck() {
+private fun Deck(activity: MainActivity) {
     val context = LocalContext.current
     val prefs = remember { Prefs(context) }
     var tab by remember { mutableStateOf(Tab.WIDGETS) }
@@ -150,12 +166,61 @@ private fun Deck() {
     var accEnabled by remember { mutableStateOf(NavAccessibilityService.isEnabled) }
     var notifAccess by remember { mutableStateOf(notifAccessEnabled(context)) }
     var updateResult by remember { mutableStateOf<UpdateResult?>(null) }
+    var deferredUpdate by remember { mutableStateOf<UpdateResult?>(null) }
     // Show the first-run walkthrough until it's been dismissed once — and always re-surface it if the
     // crash-critical overlay permission isn't granted (e.g. the user never ran the .bat/PowerShell helper).
     var showOnboarding by remember { mutableStateOf(!prefs.onboardingDone || !Settings.canDrawOverlays(context)) }
 
-    // Silent background check on launch — surfaces a system notification if newer
-    LaunchedEffect(Unit) { UpdateChecker.autoCheck(context) }
+    fun queueUpdateDialog(result: UpdateResult) {
+        if (showOnboarding) deferredUpdate = result else updateResult = result
+    }
+
+    fun runUpdateCheck(trigger: UpdateCheckTrigger) {
+        val now = System.currentTimeMillis()
+        when (trigger) {
+            UpdateCheckTrigger.Launch, UpdateCheckTrigger.NotificationTap -> prefs.updateLastCheckMs = now
+            UpdateCheckTrigger.Resume -> {
+                if (!prefs.updateAutoPrompt) return
+                if (now - prefs.updateLastCheckMs < UpdateChecker.AUTO_CHECK_INTERVAL_MS) return
+                prefs.updateLastCheckMs = now
+            }
+            UpdateCheckTrigger.Manual -> Unit
+        }
+
+        UpdateChecker.checkForUpdate(context) { result ->
+            val forcePrompt = trigger == UpdateCheckTrigger.NotificationTap
+            val manual = trigger == UpdateCheckTrigger.Manual
+            when (result) {
+                is UpdateResult.Available -> {
+                    val showInApp = manual || forcePrompt ||
+                        (prefs.updateAutoPrompt &&
+                            UpdateChecker.shouldAutoPrompt(prefs, result.info.versionCode, forcePrompt))
+                    when {
+                        showInApp -> {
+                            queueUpdateDialog(result)
+                            UpdateChecker.cancelNotification(context)
+                        }
+                        trigger == UpdateCheckTrigger.Launch &&
+                            UpdateChecker.shouldAutoPrompt(prefs, result.info.versionCode) ->
+                            UpdateChecker.postUpdateNotification(context, result.info)
+                    }
+                }
+                is UpdateResult.UpToDate, is UpdateResult.Failed -> if (manual) queueUpdateDialog(result)
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) { runUpdateCheck(UpdateCheckTrigger.Launch) }
+
+    LaunchedEffect(activity.updatePromptTick.value) {
+        if (activity.updatePromptTick.value > 0) runUpdateCheck(UpdateCheckTrigger.NotificationTap)
+    }
+
+    LaunchedEffect(showOnboarding) {
+        if (!showOnboarding) {
+            deferredUpdate?.let { updateResult = it; deferredUpdate = null }
+        }
+    }
 
     // Re-read permission state every time we return to the foreground — typically right after the user
     // grants something on a system settings page and presses Back.
@@ -166,6 +231,7 @@ private fun Deck() {
                 canOverlay = Settings.canDrawOverlays(context)
                 accEnabled = NavAccessibilityService.isEnabled
                 notifAccess = notifAccessEnabled(context)
+                runUpdateCheck(UpdateCheckTrigger.Resume)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -258,9 +324,10 @@ private fun Deck() {
                     Tab.NOTIFY -> NotifyTab(context, prefs, accent, ::refresh)
                     Tab.NAV -> NavTab(context, prefs, accent, accEnabled, ::refresh)
                     Tab.LOOK -> LookTab(prefs, accent, { accent = it }, ::refresh)
-                    Tab.ABOUT -> AboutTab(accent) {
+                    Tab.ABOUT -> AboutTab(prefs, accent) {
                         updateResult = null
-                        UpdateChecker.checkForUpdate(context) { updateResult = it }
+                        deferredUpdate = null
+                        runUpdateCheck(UpdateCheckTrigger.Manual)
                     }
                 }
                 }
@@ -277,7 +344,15 @@ private fun Deck() {
     }
 
     updateResult?.let { result ->
-        UpdateResultDialog(result = result, accent = accent, onDismiss = { updateResult = null })
+        UpdateResultDialog(
+            result = result,
+            accent = accent,
+            onDismiss = { updateResult = null },
+            onLater = { info ->
+                prefs.updateDismissedVersionCode = info.versionCode
+                updateResult = null
+            },
+        )
     }
 }
 
@@ -422,7 +497,12 @@ private fun PermStep(
 }
 
 @Composable
-private fun UpdateResultDialog(result: UpdateResult, accent: Color, onDismiss: () -> Unit) {
+private fun UpdateResultDialog(
+    result: UpdateResult,
+    accent: Color,
+    onDismiss: () -> Unit,
+    onLater: (UpdateInfo) -> Unit = {},
+) {
     val context = LocalContext.current
     when (result) {
         is UpdateResult.Available -> {
@@ -446,7 +526,9 @@ private fun UpdateResultDialog(result: UpdateResult, accent: Color, onDismiss: (
                     }) { Text("Update now", color = accent) }
                 },
                 dismissButton = {
-                    androidx.compose.material3.TextButton(onClick = onDismiss) {
+                    androidx.compose.material3.TextButton(onClick = {
+                        if (status == null) onLater(result.info) else onDismiss()
+                    }) {
                         Text(if (status == null) "Later" else "Close", color = MUTED)
                     }
                 },
@@ -1635,8 +1717,9 @@ private fun LookTab(prefs: Prefs, accent: Color, onAccent: (Color) -> Unit, refr
 }
 
 @Composable
-private fun AboutTab(accent: Color, onCheck: () -> Unit = {}) {
+private fun AboutTab(prefs: Prefs, accent: Color, onCheck: () -> Unit = {}) {
     val ctx = LocalContext.current
+    var autoPrompt by remember { mutableStateOf(prefs.updateAutoPrompt) }
     var releaseDownloads by remember { mutableStateOf<Long?>(null) }
     val releaseTag =
         remember {
@@ -1660,6 +1743,18 @@ private fun AboutTab(accent: Color, onCheck: () -> Unit = {}) {
         )
     }
     Section("Updates", "Compare against the latest release on GitHub.") {
+        Toggle("Automatic update prompts", autoPrompt, accent) {
+            autoPrompt = it
+            prefs.updateAutoPrompt = it
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "When enabled, a popup appears on launch when a new release is published. " +
+                "Tap Later to skip that version until something newer ships.",
+            color = MUTED,
+            fontSize = 14.sp
+        )
+        Spacer(Modifier.height(12.dp))
         Primary("Check for updates", accent) { onCheck() }
         Spacer(Modifier.height(10.dp))
         Text(

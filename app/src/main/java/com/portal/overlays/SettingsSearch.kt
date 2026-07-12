@@ -50,7 +50,7 @@ object SettingsSearch {
 
         Entry("STRIP", "Bottom bar", "Hide bottom bar", "Turn off the full-width status strip", "hide bottom bar black bar overlay subtitles blocked cover turn off disable strip"),
         Entry("STRIP", "Bottom bar", "Pinned apps", "Quick-launch shortcuts from the strip", "pin pinned apps shortcut launch favorite favourites icons dock"),
-        Entry("STRIP", "Bottom bar", "Pinned icons on strip", "Show app icons on the right side of the bar", "pinned icons strip dock launcher shortcuts bar"),
+        Entry("STRIP", "Bottom bar", "Pinned icons on strip", "Show app icons on the right side of the bar", "pinned icons strip dock launcher shortcuts bar reorder drag"),
         Entry("STRIP", "Bottom bar", "Strip tap actions", "Choose what opens when you tap clock, weather, etc.", "strip tap action open clock weather alarms immortal lyrics"),
         Entry("STRIP", "Bottom bar", "Accent follows app", "Tint the strip from the foreground app icon", "accent colour color theme foreground app icon tint"),
         Entry("STRIP", "Bottom bar", "Show strip", "Master toggle for the live-info status strip", "show strip status bar bottom bar enable on off"),
@@ -87,6 +87,7 @@ object SettingsSearch {
 
         Entry("ABOUT", "About", "Permissions", "Overlay, accessibility, notification access setup", "about permission overlay accessibility adb enable_portal_permissions"),
         Entry("ABOUT", "About", "Updates", "Check for new GitHub releases", "about update version download release"),
+        Entry("ABOUT", "About", "Automatic update prompts", "Popup when a new release is published", "about update automatic prompt popup release notify"),
     )
 
     fun search(query: String): List<Result> {

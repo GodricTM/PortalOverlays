@@ -259,6 +259,7 @@ class OverlayService : Service() {
         wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         prefs = Prefs(this)
         startForeground(NOTIF_ID, buildNotification())
+        UpdateChecker.surfaceBackgroundUpdate(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -2351,6 +2352,10 @@ class OverlayService : Service() {
                         showBanner("Can't open", "No launcher activity for $pkg.")
                     }
                 }
+                setOnLongClickListener {
+                    showPinnedAppIconMenu(pkg, label)
+                    true
+                }
             }
             wrap.addView(
                 ImageView(this).apply {
@@ -2831,6 +2836,119 @@ class OverlayService : Service() {
             }, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
             ).also { it.topMargin = dp(8) })
+        }
+
+        card.addView(TextView(this).apply {
+            text = "Cancel"
+            setTextColor(0xFF8A919D.toInt())
+            textSize = scaled(15f)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(16), 0, 0)
+            setOnClickListener { safeRemove(root) }
+        })
+
+        root.addView(card, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).also { it.gravity = Gravity.CENTER })
+        val lp = baseParams(focusable = true).apply {
+            width = WindowManager.LayoutParams.MATCH_PARENT
+            height = WindowManager.LayoutParams.MATCH_PARENT
+            gravity = Gravity.CENTER
+            flags = flags or WindowManager.LayoutParams.FLAG_DIM_BEHIND
+            dimAmount = 0.45f
+        }
+        if (!safeAddView(root, lp)) return
+        root.setOnClickListener { safeRemove(root) }
+        card.setOnClickListener { /* consume */ }
+    }
+
+    private fun rebuildStripIfShown() {
+        if (!prefs.stripEnabled || stripUserHidden) return
+        stripView?.let { safeRemove(it) }
+        stripView = null
+        showStrip()
+    }
+
+    /** Long-press menu for a pinned strip icon. */
+    private fun showPinnedAppIconMenu(pkg: String, label: String) {
+        val pinned = prefs.stripPinnedAppList()
+        val index = pinned.indexOf(pkg)
+        if (index < 0) return
+
+        val root = FrameLayout(this)
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(withAlpha(BANNER_BASE, prefs.overlayOpacity), prefs.cornerRadius)
+            setPadding(dp(28), dp(22), dp(28), dp(20))
+            elevation = dp(12).toFloat()
+        }
+        card.addView(TextView(this).apply {
+            text = label
+            setTextColor(Color.WHITE)
+            textSize = scaled(20f)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        })
+        card.addView(TextView(this).apply {
+            text = "Pinned app · long-press for options"
+            setTextColor(0xFF8A919D.toInt())
+            textSize = scaled(12f)
+            setPadding(0, dp(4), 0, dp(12))
+        })
+
+        fun menuAction(text: String, color: Int, enabled: Boolean = true, tap: () -> Unit): TextView =
+            TextView(this).apply {
+                this.text = text
+                setTextColor(if (enabled) Color.WHITE else 0xFF5A6172.toInt())
+                textSize = scaled(16f)
+                gravity = Gravity.CENTER
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                background = rounded(if (enabled) color else 0xFF2A303A.toInt(), 14)
+                setPadding(dp(24), dp(14), dp(24), dp(14))
+                isEnabled = enabled
+                alpha = if (enabled) 1f else 0.45f
+                setOnClickListener { if (enabled) tap() }
+            }
+
+        fun addAction(text: String, color: Int, enabled: Boolean = true, tap: () -> Unit) {
+            card.addView(
+                menuAction(text, color, enabled, tap),
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).also { it.topMargin = dp(8) },
+            )
+        }
+
+        addAction("Open", prefs.accentColor) {
+            safeRemove(root)
+            StripLaunch.launchPackage(this, pkg)
+        }
+        addAction("App info", 0xFF5A6172.toInt()) {
+            safeRemove(root)
+            openAppInfo(pkg)
+        }
+        addAction("Move left", 0xFF3D4554.toInt(), index > 0) {
+            safeRemove(root)
+            if (prefs.moveStripPinnedApp(pkg, -1)) rebuildStripIfShown()
+        }
+        addAction("Move right", 0xFF3D4554.toInt(), index < pinned.lastIndex) {
+            safeRemove(root)
+            if (prefs.moveStripPinnedApp(pkg, +1)) rebuildStripIfShown()
+        }
+        addAction("Unpin", 0xFFE5484D.toInt()) {
+            safeRemove(root)
+            prefs.unpinStripApp(pkg)
+            rebuildStripIfShown()
+        }
+        addAction("Reorder in settings", 0xFF3D4554.toInt()) {
+            safeRemove(root)
+            runCatching {
+                startActivity(
+                    Intent(this, MainActivity::class.java).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    },
+                )
+            }
         }
 
         card.addView(TextView(this).apply {
