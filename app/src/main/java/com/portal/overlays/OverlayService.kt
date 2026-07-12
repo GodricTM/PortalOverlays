@@ -166,6 +166,18 @@ class OverlayService : Service() {
     // Wi-Fi bar colours come from the active strip style; updateStripIndicators() reads these.
     private var stripWifiOn = WIFI_ON
     private var stripWifiDim = WIFI_DIM
+    private var stripStyleCache: StripStyle? = null
+    private var lastStripAccentPkg = ""
+    private val stripLaunchHandlers =
+        object : StripLaunch.Handlers {
+            override fun showForegroundMenu() = showForegroundAppMenu()
+
+            override fun showPinnedMenu() = showPinnedAppsMenu()
+
+            override fun showNtfyPreview() = showLastNtfyPreview()
+
+            override fun showWifiInfo() = showBanner("Wi-Fi", wifiInfoString())
+        }
     private var navView: View? = null
     private var tickerView: View? = null
     private var tickerText: TextView? = null
@@ -253,6 +265,7 @@ class OverlayService : Service() {
         when (intent?.action) {
             ACTION_STOP -> { stopEverything(); stopSelf(); return START_NOT_STICKY }
             ACTION_REFRESH -> syncFromPrefs()
+            ACTION_RESTORE_STRIP -> restoreStrip()
             ACTION_SYNC_WIDGETS -> syncWidgetState()
             ACTION_SYNC_TICKER -> syncTickerOnly()
             ACTION_CONTEXT_CHANGED -> updateLiveText()
@@ -333,7 +346,11 @@ class OverlayService : Service() {
         else stopMediaSessions()
         if (prefs.noteEnabled) showNote()
         if (prefs.agendaEnabled) showAgenda()
-        if (prefs.stripEnabled) { if (stripUserHidden) showStripHandle() else showStrip() }
+        if (prefs.stripEnabled) {
+            if (stripUserHidden) {
+                if (shouldShowStripHandle()) showStripHandle()
+            } else showStrip()
+        }
         if (prefs.navEnabled) showNav()
         // The ticker rides with the strip: when the user has the strip hidden, keep the ticker
         // hidden too so the bottom edge is fully clear.
@@ -527,6 +544,7 @@ class OverlayService : Service() {
         clearNowPlayingFullRefs()
         noteText = null
         streamingAnim?.cancel(); streamingAnim = null
+        stripStyleCache = null
         stripContext = null
         stripClock = null; stripDate = null; stripWeather = null; stripBattery = null
         stripNetwork = null; stripNtfy = null
@@ -893,6 +911,7 @@ class OverlayService : Service() {
         val root = FrameLayout(this).apply {
             setBackgroundColor(0xF20A0C10.toInt())
             isClickable = true
+            applyPortalImmersive()
         }
         val layoutStyle = prefs.nowPlayingLayoutStyle
         val visualizer = NowPlayingVisualizerView(this).apply {
@@ -2205,6 +2224,7 @@ class OverlayService : Service() {
 
     private fun showStrip() {
         val style = stripStyleFor(prefs.stripStyle)
+        stripStyleCache = style
         stripWifiOn = style.wifiOn
         stripWifiDim = style.wifiDim
         val fillAlpha = if (style.barAlpha >= 0) style.barAlpha else prefs.overlayOpacity
@@ -2305,23 +2325,78 @@ class OverlayService : Service() {
             })
             return btn
         }
+        fun pinnedAppIcon(pkg: String): View {
+            val label =
+                runCatching {
+                        packageManager.getApplicationLabel(
+                            packageManager.getApplicationInfo(pkg, 0),
+                        ).toString()
+                    }
+                    .getOrNull()
+                    .orEmpty()
+                    .ifBlank { pkg }
+            val iconSize = if (style.textScale > 1f) dp(30) else dp(26)
+            val active = pkg == UiContextState.currentPackageName()
+            val ring = if (active) prefs.accentColor else style.btnBg
+            val wrap = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                background = rounded(ring, 10)
+                setPadding(dp(2), dp(2), dp(2), dp(2))
+                contentDescription = label
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    if (!StripLaunch.launchPackage(this@OverlayService, pkg)) {
+                        showBanner("Can't open", "No launcher activity for $pkg.")
+                    }
+                }
+            }
+            wrap.addView(
+                ImageView(this).apply {
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                    runCatching { setImageDrawable(packageManager.getApplicationIcon(pkg)) }
+                    background = rounded(withAlpha(0xFFFFFFFF.toInt(), 255), 8)
+                },
+                LinearLayout.LayoutParams(iconSize, iconSize),
+            )
+            bar.addView(
+                wrap,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).also {
+                    it.leftMargin = dp(4)
+                    it.rightMargin = dp(4)
+                },
+            )
+            return wrap
+        }
 
         if (prefs.stripShowClock) stripClock = textSeg().apply {
             if (!style.mono) typeface = Typeface.create("sans-serif-medium", if (style.bold) Typeface.BOLD else Typeface.NORMAL)
+            bindStripTap(this, StripLaunch.Segment.CLOCK)
         }
-        if (prefs.stripShowDate) stripDate = textSeg().apply { setTextColor(style.muted) }
+        if (prefs.stripShowDate) stripDate = textSeg().apply {
+            setTextColor(style.muted)
+            bindStripTap(this, StripLaunch.Segment.DATE)
+        }
         if (prefs.stripShowContext) stripContext = textSeg("context").apply {
-            isClickable = true
-            setOnClickListener { showForegroundAppMenu() }
+            bindStripTap(this, StripLaunch.Segment.CONTEXT)
         }
-        if (prefs.stripShowWeather) stripWeather = textSeg("weather")
-        if (prefs.stripShowBattery) stripBattery = textSeg("battery")
+        if (prefs.stripShowWeather) stripWeather = textSeg("weather").apply {
+            bindStripTap(this, StripLaunch.Segment.WEATHER)
+        }
+        if (prefs.stripShowBattery) stripBattery = textSeg("battery").apply {
+            bindStripTap(this, StripLaunch.Segment.BATTERY)
+        }
         if (prefs.stripShowNetwork) stripNetwork = textSeg("network").apply {
             // Reserve a fixed width sized to the widest realistic readout so the per-second refresh
             // (e.g. "0 B/s" -> "12.3 MB/s") can't shove the segments after it left and right.
             gravity = Gravity.START or Gravity.CENTER_VERTICAL
             val widest = "↓ 88.8 MB/s ↑ 88.8 MB/s"
             width = paint.measureText(widest).toInt() + paddingLeft + paddingRight + dp(2)
+            bindStripTap(this, StripLaunch.Segment.NETWORK)
         }
         if (prefs.stripShowStreaming) {
             sep()
@@ -2353,48 +2428,53 @@ class OverlayService : Service() {
             bar.addView(bars)
             stripWifiBars = bars
         }
-        if (prefs.stripShowWeek) stripWeek = textSeg("week")
-        if (prefs.stripShowRain) stripRain = textSeg("rain")
-        if (prefs.stripShowSun) stripSun = textSeg("sun")
-        if (prefs.stripShowWind) stripWind = textSeg("wind")
-        if (prefs.stripShowUv) stripUv = textSeg("uv")
-        if (prefs.stripShowWeatherAlert) stripWeatherAlert = textSeg("alert")
-        if (prefs.stripShowAgenda) stripAgenda = textSeg("agenda")
-        if (prefs.stripShowNtfy) stripNtfy = textSeg("ntfy").apply {
-            isClickable = true
-            setOnClickListener { showLastNtfyPreview() }
+        if (prefs.stripShowWeek) stripWeek = textSeg("week").apply { bindStripTap(this, StripLaunch.Segment.WEEK) }
+        if (prefs.stripShowRain) stripRain = textSeg("rain").apply { bindStripTap(this, StripLaunch.Segment.RAIN) }
+        if (prefs.stripShowSun) stripSun = textSeg("sun").apply { bindStripTap(this, StripLaunch.Segment.SUN) }
+        if (prefs.stripShowWind) stripWind = textSeg("wind").apply { bindStripTap(this, StripLaunch.Segment.WIND) }
+        if (prefs.stripShowUv) stripUv = textSeg("uv").apply { bindStripTap(this, StripLaunch.Segment.UV) }
+        if (prefs.stripShowWeatherAlert) stripWeatherAlert = textSeg("alert").apply {
+            bindStripTap(this, StripLaunch.Segment.ALERT)
         }
-        if (prefs.stripShowNavButtons) {
+        if (prefs.stripShowAgenda) stripAgenda = textSeg("agenda").apply {
+            bindStripTap(this, StripLaunch.Segment.AGENDA)
+        }
+        if (prefs.stripShowNtfy) stripNtfy = textSeg("ntfy").apply {
+            bindStripTap(this, StripLaunch.Segment.NTFY)
+        }
+        val pinnedList = if (prefs.stripShowPinnedIcons) prefs.stripPinnedAppList() else emptyList()
+        val showRightCluster =
+            pinnedList.isNotEmpty() || prefs.stripShowNavButtons || prefs.stripShowHideButton
+        if (showRightCluster) {
             sep()
             stripNavSpacer = View(this).apply { layoutParams = LinearLayout.LayoutParams(0, 0, 1f) }
             bar.addView(stripNavSpacer)
+        }
+        pinnedList.forEach { pinnedAppIcon(it) }
+        if (prefs.stripShowNavButtons) {
             stripNavBack = tinyNavButton("‹", "Back", action = { NavAccessibilityService.back() })
             stripNavHome = tinyNavButton("⌂", "Home", action = { NavAccessibilityService.home() })
             stripNavRecents = tinyNavButton("▢", "Recents", action = { NavAccessibilityService.recents() })
         }
 
         // Hide button at the far right: collapses the strip to a small restore handle so whatever
-        // is underneath (e.g. the bottom of a page) can be read. If there were no nav buttons, a
-        // flexible spacer pushes it to the edge.
-        if (!prefs.stripShowNavButtons) {
-            bar.addView(View(this), LinearLayout.LayoutParams(0, 0, 1f))
+        // is underneath (e.g. the bottom of a page) can be read.
+        if (prefs.stripShowHideButton) {
+            val hideBtn =
+                stripControlButton(
+                    iconRes = R.drawable.ic_strip_hide,
+                    tint = style.muted,
+                    bgColor = style.btnBg,
+                    contentDescription = "Hide status strip",
+                ) { hideStrip() }
+            bar.addView(
+                hideBtn,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).also { it.leftMargin = dp(8) },
+            )
         }
-        val hideBtn = TextView(this).apply {
-            text = if (prefs.stripPosition == "top") "▴" else "▾"
-            setTextColor(style.muted)
-            textSize = scaled(15f)
-            gravity = Gravity.CENTER
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            background = rounded(style.btnBg, 12)
-            setPadding(dp(12), dp(2), dp(12), dp(2))
-            minWidth = dp(40); minHeight = dp(26)
-            isAllCaps = false
-            contentDescription = "Hide status strip"
-            setOnClickListener { hideStrip() }
-        }
-        bar.addView(hideBtn, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ).also { it.leftMargin = dp(8) })
 
         stripHeightPx = if (style.textScale > 1f) dp(44) else dp(36)
         val lp = baseParams(height = stripHeightPx).apply {
@@ -2416,7 +2496,7 @@ class OverlayService : Service() {
         stripView = null
         stripLp = null
         hideTicker()
-        showStripHandle()
+        if (shouldShowStripHandle()) showStripHandle()
     }
 
     /** Bring the strip and ticker back and drop the restore handle. */
@@ -2428,6 +2508,9 @@ class OverlayService : Service() {
         if (prefs.tickerEnabled && prefs.tickerUrl.isNotBlank()) showTicker()
     }
 
+    private fun shouldShowStripHandle(): Boolean =
+        prefs.stripShowRestoreHandle && stripUserHidden
+
     /** Remove just the ticker overlay; the feed client keeps running so restore is instant. */
     private fun hideTicker() {
         tickerAnim?.cancel(); tickerAnim = null
@@ -2435,28 +2518,67 @@ class OverlayService : Service() {
         tickerView = null; tickerText = null
     }
 
-    /** A small tappable chevron pinned to the strip's edge while the strip is hidden. */
-    private fun showStripHandle() {
-        if (stripHandleView != null) return
-        val handle = TextView(this).apply {
-            text = if (prefs.stripPosition == "top") "▾" else "▴"
-            setTextColor(0xFFD7DCE4.toInt())
-            textSize = scaled(15f)
+    /** Icon button on the strip chrome (hide) or restore pill (expand / dismiss). */
+    private fun stripControlButton(
+        iconRes: Int,
+        tint: Int,
+        bgColor: Int,
+        contentDescription: String,
+        iconDp: Int = 18,
+        padH: Int = 10,
+        padV: Int = 6,
+        onClick: () -> Unit,
+    ): View {
+        val icon =
+            ImageView(this).apply {
+                setImageResource(iconRes)
+                setColorFilter(tint)
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+                layoutParams =
+                    LinearLayout.LayoutParams(dp(iconDp), dp(iconDp)).also {
+                        it.gravity = Gravity.CENTER
+                    }
+            }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            background = rounded(withAlpha(STRIP_BASE, prefs.overlayOpacity), 14)
-            setPadding(dp(18), dp(5), dp(18), dp(5))
-            isAllCaps = false
-            contentDescription = "Show status strip"
-            setOnClickListener { restoreStrip() }
+            background = rounded(bgColor, 12)
+            setPadding(dp(padH), dp(padV), dp(padH), dp(padV))
+            minimumWidth = dp(36)
+            minimumHeight = dp(28)
+            addView(icon)
+            this.contentDescription = contentDescription
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
         }
-        val lp = baseParams().apply {
-            width = WindowManager.LayoutParams.WRAP_CONTENT
-            height = WindowManager.LayoutParams.WRAP_CONTENT
-            gravity = Gravity.END or if (prefs.stripPosition == "top") Gravity.TOP else Gravity.BOTTOM
-            x = dp(16)
-            y = if (prefs.stripPosition == "top") dp(70) else dp(8)
-        }
+    }
+
+    /** A small restore pill pinned to the strip's edge while the strip is hidden. */
+    private fun showStripHandle() {
+        if (stripHandleView != null || !shouldShowStripHandle()) return
+        val expandIcon =
+            if (prefs.stripPosition == "top") R.drawable.ic_strip_collapse else R.drawable.ic_strip_expand
+        val pillBg = withAlpha(STRIP_BASE, prefs.overlayOpacity)
+        val iconTint = 0xFFD7DCE4.toInt()
+        val handle =
+            stripControlButton(
+                iconRes = expandIcon,
+                tint = iconTint,
+                bgColor = pillBg,
+                contentDescription = "Show status strip",
+                iconDp = 20,
+                padH = 14,
+                padV = 6,
+            ) { restoreStrip() }
+        val lp =
+            baseParams().apply {
+                width = WindowManager.LayoutParams.WRAP_CONTENT
+                height = WindowManager.LayoutParams.WRAP_CONTENT
+                gravity = Gravity.END or if (prefs.stripPosition == "top") Gravity.TOP else Gravity.BOTTOM
+                x = dp(16)
+                y = if (prefs.stripPosition == "top") dp(70) else dp(8)
+            }
         if (!safeAddView(handle, lp)) return
         stripHandleView = handle
     }
@@ -2641,12 +2763,110 @@ class OverlayService : Service() {
         showBanner(lastNtfyTitle.ifBlank { "ntfy message" }, body, dismissSec = 12)
     }
 
+    private fun bindStripTap(view: TextView, segment: StripLaunch.Segment) {
+        val action = StripLaunch.actionFor(prefs, segment)
+        if (action == "none") {
+            view.isClickable = false
+            return
+        }
+        view.isClickable = true
+        view.setOnClickListener {
+            if (!StripLaunch.launchSegment(this, prefs, segment, stripLaunchHandlers)) {
+                showBanner("Can't open", "That strip action isn't available on this device.")
+            }
+        }
+    }
+
+    private fun showPinnedAppsMenu() {
+        val pinned = prefs.stripPinnedAppList()
+        if (pinned.isEmpty()) {
+            showBanner("Pinned apps", "Add shortcuts in Portal Overlays → Bottom bar → Pinned apps.")
+            return
+        }
+
+        val root = FrameLayout(this)
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(withAlpha(BANNER_BASE, prefs.overlayOpacity), prefs.cornerRadius)
+            setPadding(dp(28), dp(22), dp(28), dp(20))
+            elevation = dp(12).toFloat()
+        }
+        card.addView(TextView(this).apply {
+            text = "Pinned apps"
+            setTextColor(Color.WHITE)
+            textSize = scaled(20f)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        })
+        card.addView(TextView(this).apply {
+            text = "Tap an app to open it."
+            setTextColor(0xFF8A919D.toInt())
+            textSize = scaled(13f)
+            setPadding(0, dp(4), 0, dp(12))
+        })
+
+        pinned.forEach { pkg ->
+            val label =
+                runCatching {
+                        packageManager.getApplicationLabel(
+                            packageManager.getApplicationInfo(pkg, 0),
+                        ).toString()
+                    }
+                    .getOrNull()
+                    .orEmpty()
+                    .ifBlank { pkg }
+            card.addView(TextView(this).apply {
+                text = label
+                setTextColor(Color.WHITE)
+                textSize = scaled(16f)
+                gravity = Gravity.CENTER
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                background = rounded(prefs.accentColor, 14)
+                setPadding(dp(24), dp(14), dp(24), dp(14))
+                setOnClickListener {
+                    safeRemove(root)
+                    if (!StripLaunch.launchPackage(this@OverlayService, pkg)) {
+                        showBanner("Can't open", "No launcher activity for $pkg.")
+                    }
+                }
+            }, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).also { it.topMargin = dp(8) })
+        }
+
+        card.addView(TextView(this).apply {
+            text = "Cancel"
+            setTextColor(0xFF8A919D.toInt())
+            textSize = scaled(15f)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(16), 0, 0)
+            setOnClickListener { safeRemove(root) }
+        })
+
+        root.addView(card, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).also { it.gravity = Gravity.CENTER })
+        val lp = baseParams(focusable = true).apply {
+            width = WindowManager.LayoutParams.MATCH_PARENT
+            height = WindowManager.LayoutParams.MATCH_PARENT
+            gravity = Gravity.CENTER
+            flags = flags or WindowManager.LayoutParams.FLAG_DIM_BEHIND
+            dimAmount = 0.45f
+        }
+        if (!safeAddView(root, lp)) return
+        root.setOnClickListener { safeRemove(root) }
+        card.setOnClickListener { /* consume */ }
+    }
+
     private fun showForegroundAppMenu() {
         val pkg = UiContextState.currentPackageName()
         val label = UiContextState.displayLabel(this)
         when (UiContextState.currentKind()) {
             UiContextState.WindowKind.HOME -> {
-                showBanner("Home", "You're on the launcher — pick an app to open, or use the nav cluster.")
+                if (prefs.stripPinnedAppList().isNotEmpty()) {
+                    showPinnedAppsMenu()
+                } else {
+                    showBanner("Home", "You're on the launcher — pin apps in Overlays → Bottom bar, or use the nav cluster.")
+                }
                 return
             }
             UiContextState.WindowKind.PORTAL_UI -> {
@@ -3097,6 +3317,46 @@ class OverlayService : Service() {
                 )
             }
         }
+        applyStripForegroundAccent()
+    }
+
+    private fun applyStripForegroundAccent() {
+        if (!prefs.stripAccentFollowApp || prefs.stripStyle == "sky") return
+        val bar = stripView as? LinearLayout ?: return
+        val style = stripStyleCache ?: return
+        val fillAlpha = if (style.barAlpha >= 0) style.barAlpha else prefs.overlayOpacity
+        val pkg = AppAccent.foregroundPackage()
+        if (pkg != lastStripAccentPkg) lastStripAccentPkg = pkg
+        val accent = pkg.takeIf { it.isNotBlank() }?.let { AppAccent.colorFor(this, it) }
+        if (accent == null) {
+            paintStripBackground(bar, style, fillAlpha, style.barColor, style.barColor2)
+            stripContext?.setTextColor(style.accents["context"] ?: style.text)
+            return
+        }
+        val base = style.barColor
+        val base2 = style.barColor2
+        val blended = AppAccent.blend(base, accent, 0.22f)
+        val blended2 = if (style.gradient) AppAccent.blend(base2, accent, 0.18f) else blended
+        paintStripBackground(bar, style, fillAlpha, blended, blended2)
+        stripContext?.setTextColor(AppAccent.blend(style.accents["context"] ?: style.text, accent, 0.35f))
+    }
+
+    private fun paintStripBackground(
+        bar: LinearLayout,
+        style: StripStyle,
+        fillAlpha: Int,
+        color: Int,
+        color2: Int,
+    ) {
+        bar.background =
+            if (style.gradient) {
+                GradientDrawable(
+                    GradientDrawable.Orientation.LEFT_RIGHT,
+                    intArrayOf(withAlpha(color, fillAlpha), withAlpha(color2, fillAlpha)),
+                )
+            } else {
+                GradientDrawable().apply { setColor(withAlpha(color, fillAlpha)) }
+            }
     }
 
     /** Keep the strip pinned flush to its chosen edge (top or bottom). */
@@ -3554,6 +3814,7 @@ class OverlayService : Service() {
         // We clamp every overlay on-screen ourselves, so the flag isn't needed.
         var f = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
         if (!focusable) f = f or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        else f = f or WindowManager.LayoutParams.FLAG_FULLSCREEN
         return WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT, height,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, f, PixelFormat.TRANSLUCENT
@@ -3562,6 +3823,16 @@ class OverlayService : Service() {
             // smears the nav cluster across the screen and steals touches while typing.
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
         }
+    }
+
+    private fun View.applyPortalImmersive() {
+        systemUiVisibility =
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                View.SYSTEM_UI_FLAG_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
     }
 
     /**
@@ -3776,6 +4047,7 @@ class OverlayService : Service() {
 
     companion object {
         const val ACTION_REFRESH = "com.portal.overlays.REFRESH"
+        const val ACTION_RESTORE_STRIP = "com.portal.overlays.RESTORE_STRIP"
         const val ACTION_SYNC_WIDGETS = "com.portal.overlays.SYNC_WIDGETS"
         const val ACTION_SYNC_TICKER = "com.portal.overlays.SYNC_TICKER"
         const val ACTION_STOP = "com.portal.overlays.STOP"

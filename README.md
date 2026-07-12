@@ -10,9 +10,14 @@ A floating HUD for sideloaded Meta Portal devices. Draws widgets, banners, mirro
 - **Mirrored notifications** from other apps as overlay banners
 - **Draggable widgets**: clock, weather, battery, sticky note
 - **Ticker overlay** from a real RSS, Atom, or JSON feed, shown along the top or bottom edge, with built-in live source presets (BBC, AP, NPR) plus live finance sources (crypto via CoinGecko, stocks via Stooq)
-- **Status strip** with time, date, foreground app / Portal UI label, weather, battery, ntfy state,
-  live network speed, ISO week, rain-in-next-hour, sunrise/sunset countdown, streaming, VPN, and
-  Wi-Fi indicators, plus optional wider Back / Home / Recents buttons on the right
+- **Status strip / bottom bar** with time, date, foreground app / Portal UI label, weather, battery,
+  ntfy state, live network speed, ISO week, rain-in-next-hour, sunrise/sunset countdown, streaming,
+  VPN, and Wi-Fi indicators, plus optional wider Back / Home / Recents buttons on the right
+- **Pinned app dock on the strip** — up to 8 app icons on the right side of the bar; tap to launch
+- **Strip tap actions** — assign opens (Immortal screens, alarms, any app) per segment
+- **Accent follows foreground app** — optional icon-colour tint on the strip background
+- **Bottom bar hide / restore** — eye-off icon collapses the strip (and the ticker that rides with
+  it) to a small expand pill; **Show bar if hidden** in settings restores it
 - **Floating nav cluster**: Back, Home, Recents, Control Center swipe, Screenshot, Lock
 - **Portal Mini app switcher fallback** when the Portal system has no Recents/Overview UI
 - **Eight nav styles**: Pill segments, Underline indicator, Ghost pill, Floating squares, Dark glass,
@@ -41,47 +46,27 @@ A floating HUD for sideloaded Meta Portal devices. Draws widgets, banners, mirro
   Sunset, Ocean, Mono Graphite, OLED Black, E-ink Paper, Iconic, High Contrast, and a dynamic Sky),
   picked from a "Style" list on the Status strip page — each restyles the bar fill, text and accent
   colours, separators, and font
-- **Status strip hide / restore**: a small chevron collapses the strip (and the ticker that rides
-  with it) to a tiny handle so you can read what's underneath, then tap the handle to bring it back
+- **Status strip hide / restore**: an eye-off icon collapses the strip (and the ticker that rides
+  with it) to a tiny expand handle so you can read what's underneath, then tap the handle or
+  **Show bar if hidden** in the app to bring it back
 - **Overlays auto re-arm**: reopening the app restores the overlays automatically — no toggling
   "running" off and on after the Portal kills the background service
 - **Screenshot button** that saves to the gallery (Pictures/Screenshots) via MediaStore, with an
   app-storage fallback, instead of crashing on the Portal's Android 9
 - **Dedicated control tabs** for Widgets, Now Playing, Status strip, Ticker, Settings, Notifications, Navigation, Appearance, and About
 - **Settings page** for shared app-wide options like weather location and weather units, so they can be changed without enabling the Weather widget first
-- **Status strip defaults** that start with the bottom strip enabled and the requested live items on:
-  clock, date, foreground app, weather, network speed, Wi-Fi, week number, rain, sunset / sunrise,
-  and optional strip-mounted Back / Home / Recents buttons
+- **Status strip defaults** that start with the strip enabled (top position on fresh installs) and
+  the requested live items on: clock, date, foreground app, weather, network speed, Wi-Fi, week
+  number, rain, sunset / sunrise, and optional strip-mounted Back / Home / Recents buttons
 - **Startup defaults** with Clock off and Now Playing on, so a fresh install opens with the most
   useful media and strip overlays active
 - **Customisation**: accent colour, opacity, corner radius, text scale, strip position, alert sounds,
   weather location, and weather units
 - **Narrow update paths** so ticker changes restart only the ticker, while simple widget toggles do
   not tear down the entire overlay stack
-
-### Coming in the next release (built, not tagged yet)
-
-These ship in current `main` / debug builds but are not yet a numbered GitHub release:
-
-- **Full-height control deck** — every settings tab uses the whole content area (compact running /
-  permission bar + scrollable sections)
-- **Settings search** — tap **Search settings…** in the left rail for a full-panel browser: ranked
-  section results, keyword chips, popular searches (`screensaver`, `ntfy`, `edge bar`, …), and
-  browse-by-tab catalog; tap a result to open that tab
-- **Screensaver remote control** — tap album art to skip, swipe for prev/next, double-tap the clock
-  to wake; one-time gesture hint toast on first real idle
-- **Track history** — **History** on the full now-playing card: last ~20 tracks with cover thumbnails
-  and timestamps (local only); album art crossfades on track change
-- **Status strip weather extras** — optional wind, UV, and severe-weather alert lines (Open-Meteo)
-- **Finance watchlists** — `finance:crypto:BTC,ETH` and `finance:stocks:AAPL,TSLA` ticker URLs
-- **Seek-jump visualizer** — visualizer pulse when playback skips >5s (no mic)
-- **Vector transport buttons** — skip / play / pause icons on full card and dock shapes
-- **Strip taps** — foreground app menu; ntfy last-message preview
-- **Widget safe zones** — drag widgets away from strip/ticker/chrome; soft collision nudging
-- **Post-boot nav banner** — warns when accessibility restore failed after reboot
-- **Labs** — live-audio reactor under **Settings → Labs** (off by default)
-
-See [release/UNRELEASED.md](release/UNRELEASED.md) and the `[Unreleased]` section of [CHANGELOG.md](CHANGELOG.md).
+- **In-app updates** — **About → Check for updates** compares `versionCode` against
+  [`version.json`](version.json) on GitHub and installs newer releases over the top (same pattern as
+  Immortal). Immortal's app store catalog entry also pins `versionCode` for update detection.
 
 ## Control panel
 
@@ -92,7 +77,7 @@ Open **Portal Overlays** on the Portal to configure everything. Ten tabs in the 
 | Widgets | Clock, weather, battery, note, agenda |
 | Now Playing | Dock shape, visualizer, full card, history |
 | Screensaver | Dream background, cover layout, gestures |
-| Status strip | Style, weather extras, foreground app, ntfy |
+| Bottom bar | Style, pinned apps, tap actions, hide/restore |
 | Ticker | RSS/finance feeds, scroll speed |
 | Settings | Weather city/units, Labs |
 | Notifications | ntfy, mirror, breaking news, sounds |

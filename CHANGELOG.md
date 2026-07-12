@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9] - 2026-07-12
+
+### Added
+- **Pinned app icons on the strip** — up to 8 shortcuts show as tappable app icons on the right side
+  of the bottom bar; active app gets an accent ring. Toggle **Show pinned icons on strip** in
+  **Bottom bar → Pinned apps**.
+- **Strip tap actions** — configure what opens when you tap each strip segment (Immortal clock,
+  weather/home, alarms, Portal Lyrics, any installed app, pinned menu, ntfy preview, etc.).
+- **Accent follows foreground app** — optional subtle strip background tint from the active app's
+  icon colour (disabled for Sky strip style).
+- **Hide icon on strip** — eye-off control replaces ▴/▾ text for collapsing the bar.
+- **Show bar if hidden** — primary button at the top of the Bottom bar tab restores a collapsed or
+  dismissed strip.
+
+### Changed
+- **Bottom bar settings** — tab renamed from "Status strip" to **Bottom bar** with clearer copy that
+  it is not the Ticker; onboarding **About the bottom bar** hint; settings search entries for
+  `bottom bar`, subtitles, hide/show strip, pinned icons, and tap actions.
+- **Default strip position** — new installs default to **top** (existing saved prefs unchanged) to
+  keep subtitles clear.
+- **Restore pill when minimized** — expand chevron only; removed the × dismiss that could leave the
+  bar with no on-screen way back.
+
 ## [1.8] - 2026-07-01
 
 ### Added

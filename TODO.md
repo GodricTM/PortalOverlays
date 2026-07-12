@@ -16,7 +16,10 @@ Working tracker for release prep and follow-up work. Newest items at top.
 - **Notifications** - ntfy banners and mirrored notifications remain available; ntfy can point at a self-hosted server (custom URL + optional access token) to keep messages private.
 
 ## Shipped work
-- [x] v1.8 batch (Unreleased) — screensaver remote (tap/swipe art, double-tap clock + one-time hint
+- [x] v1.9 — bottom bar UX (tab rename, top default for new installs, onboarding hint, settings
+      search), pinned app icons on strip, strip tap actions, accent follows foreground app, hide icon
+      + expand restore pill, Show bar if hidden, Immortal catalog versionCode bump.
+- [x] v1.8 batch — screensaver remote (tap/swipe art, double-tap clock + one-time hint
       toast), track history with cover thumbnails, album-art crossfade, Open-Meteo strip extras
       (wind/UV/alert), finance watchlists, seek-jump visualizer pulse, vector transport buttons,
       strip taps (foreground app menu, ntfy preview), widget safe zones + collision nudging, post-boot
@@ -164,8 +167,7 @@ Ordered roughly by impact-to-effort. Tackle top-down; check items off as shipped
 ### Decisions to confirm next session
 - [x] Live-audio reactor — moved to **Settings → Labs** (collapsed by default); removed from Now
       Playing and Screensaver tabs so users don't think the visualizer is broken.
-- [ ] Version bump + release build for the Unreleased v1.8 batch (screensaver remote, history, search,
-      strip extras, transport icons, etc.).
+- [x] Version bump + release build for the v1.8/v1.9 batches (shipped v1.8 2026-07-01, v1.9 2026-07-12).
 
 ## Next up
 - [ ] Shuffle / repeat on Now Playing — removed for now: the framework `setShuffleMode`/`setRepeatMode`

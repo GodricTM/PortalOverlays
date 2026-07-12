@@ -1,59 +1,49 @@
-# Portal Overlays v1.8 release
+# Portal Overlays v1.9 release
 
-The screensaver becomes a remote control, the now-playing card gains track history and smoother art,
-and the control deck gets a full settings search — plus status-strip weather extras, finance
-watchlists, and a batch of Now Playing and strip polish.
-
-## Fixed
-
-- **Finish-setup screen stuck on a remote / Portal TV** ([#3](https://github.com/GodricTM/PortalOverlays/issues/3))
-  — the first-run walkthrough is a modal drawn over the control deck, so a D-pad could keep moving
-  focus on the deck behind it and never reach the **Done** button. The button now takes focus when
-  the screen appears, and once "Draw over other apps" is granted the remote's **OK / Enter** closes
-  it from anywhere.
+The bottom bar gets a mini app dock, smarter tap actions, and clearer hide/restore — plus
+subscription-friendly UX polish from community feedback (Reddit "black bar" confusion).
 
 ## What's in this release
 
-- **Screensaver as a remote** — on the idle/dream screen: **tap** album art to skip, **swipe**
-  left/right for prev/next, **double-tap** the clock to wake the device. A one-time hint toast
-  ("Swipe art · double-tap clock") shows the first time the real screen saver starts.
-- **Track history** — the full now-playing card logs the last ~20 tracks locally (cover thumbnail,
-  title, artist, relative time). Tap **History** for the list; stored on-device, no cloud.
-- **Smoother album art** — cover art **crossfades** between tracks on the full card, dock, and
-  screensaver, and stays stable during playback (no refresh flicker).
-- **Settings search** — a full-panel search in the control deck: ~40 section-level entries with
-  ranked results (tab badge, description, keyword chips), a browse-by-tab catalog, popular quick
-  chips, and inline top matches while typing. Tap a result to jump straight to that tab.
-- **Status-strip weather extras** — optional wind speed, UV index, and severe-weather alert lines
-  from the same keyless Open-Meteo poll (no new API key).
-- **Finance ticker watchlists** — custom symbols in the ticker feed URL:
-  `finance:crypto:BTC,ETH,SOL` or `finance:stocks:AAPL,TSLA,NVDA`.
-- **Now Playing polish** — crisp **vector transport buttons** (prev / play-pause / next) on the full
-  card, edge bar, and strip dock, and a **seek-jump visualizer pulse** when playback position jumps
-  more than 5s (e.g. a skip from your phone) — no microphone.
-- **Strip tap actions** — tap the foreground-app line for Open / App info / Force stop; tap the ntfy
-  line for the last message preview.
-- **Widget safe zones** — draggable widgets nudge away from the strip, ticker, and edge now-playing,
-  and nudge apart when they overlap.
-- **Post-boot nav warning** — a banner if the accessibility service couldn't be restored after a
-  reboot and nav features are enabled.
-- **Labs** — the experimental **React to live audio** option moved to **Settings → Labs** (off by
-  default). See `docs/portal-audio-capture.md` for why true output-mix capture isn't viable on Portal.
+- **Pinned app icons on the bar** — add up to 8 shortcuts in **Bottom bar → Pinned apps**; their
+  icons appear on the **right side of the strip** (before nav / hide). Tap to launch; the active app
+  gets an accent ring. Toggle **Show pinned icons on strip** to hide the dock without removing pins.
+- **Strip tap actions** — assign a preset or any installed app to each strip segment (clock → Immortal
+  clock, weather → Immortal home, alarms, Portal Lyrics, etc.). **Bottom bar → Strip tap actions**.
+- **Accent follows foreground app** — optional subtle strip tint sampled from the active app's icon
+  colour (off when strip style is Sky).
+- **Bottom bar UX** — settings tab renamed from "Status strip" to **Bottom bar**; first-run hint
+  explains how to hide it; settings search adds `bottom bar`, `subtitles`, and related keywords.
+  **New installs default to top** strip position so subtitles stay clear (existing prefs unchanged).
+- **Hide / restore polish** — collapse control is an **eye-off icon** (not ▴/▾ text). When minimized,
+  a small **expand chevron** pill appears; **Show bar if hidden** at the top of the Bottom bar tab
+  brings the strip back if the pill is gone.
 
 ## Install
 
 ```bash
-npx -y metavr app install -r PortalOverlays-v1.8-release.apk
+npx -y metavr app install -r PortalOverlays-v1.9-release.apk
 npx -y metavr app launch com.portal.overlays
+```
+
+Stable alias (always latest):
+
+```bash
+npx -y metavr app install -r https://github.com/GodricTM/PortalOverlays/releases/latest/download/PortalOverlays.apk
 ```
 
 After an app update, Android may disable the accessibility service. If the floating nav buttons stop
 working, re-run `enable_portal_permissions.bat` from the source repo.
 
+## In-app updates
+
+Portal Overlays checks `version.json` on GitHub (`versionCode` compare). **About → Check for updates**
+downloads and installs when a newer build is published. Immortal's app store uses the same
+`versionCode` in its catalog entry — bump both when shipping.
+
 ## Permissions
 
-Grant once over ADB, or re-run after reinstalling/updating (also grants storage so screenshots reach
-the gallery on pre-Android 10 Portals):
+Grant once over ADB, or re-run after reinstalling/updating:
 
 ```powershell
 .\enable_portal_permissions.bat

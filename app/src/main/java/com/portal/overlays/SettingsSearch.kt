@@ -21,7 +21,7 @@ object SettingsSearch {
     )
 
     val quickChips = listOf(
-        "screensaver", "ntfy", "edge bar", "weather", "crypto", "nav", "labs", "history",
+        "bottom bar", "screensaver", "ntfy", "edge bar", "weather", "crypto", "nav", "labs", "history",
     )
 
     private val index = listOf(
@@ -48,12 +48,22 @@ object SettingsSearch {
         Entry("SCREENSAVER", "Screensaver", "Clock & battery", "Large idle clock, date, and battery", "screensaver clock date battery idle"),
         Entry("SCREENSAVER", "Screensaver", "Activate", "Set as device screensaver or use set_screensaver.bat", "screensaver dream activate picker adb immortal"),
 
-        Entry("STRIP", "Status strip", "Position & style", "Top or bottom strip and 19 visual styles", "strip status bar style dense aurora sky position top bottom"),
-        Entry("STRIP", "Status strip", "Weather extras", "Rain, sunset, wind, UV, severe alert", "strip rain sunset wind uv alert weather open-meteo"),
-        Entry("STRIP", "Status strip", "Foreground app", "Tap active app for open, info, force stop", "strip foreground app package open force stop"),
-        Entry("STRIP", "Status strip", "ntfy preview", "Tap ntfy line for last push message", "strip ntfy notify preview last message"),
-        Entry("STRIP", "Status strip", "Nav buttons", "Back, home, recents on the strip", "strip nav back home recents buttons"),
-        Entry("STRIP", "Status strip", "Indicators", "Streaming, VPN, Wi-Fi, network speed", "strip streaming vpn wifi network speed week"),
+        Entry("STRIP", "Bottom bar", "Hide bottom bar", "Turn off the full-width status strip", "hide bottom bar black bar overlay subtitles blocked cover turn off disable strip"),
+        Entry("STRIP", "Bottom bar", "Pinned apps", "Quick-launch shortcuts from the strip", "pin pinned apps shortcut launch favorite favourites icons dock"),
+        Entry("STRIP", "Bottom bar", "Pinned icons on strip", "Show app icons on the right side of the bar", "pinned icons strip dock launcher shortcuts bar"),
+        Entry("STRIP", "Bottom bar", "Strip tap actions", "Choose what opens when you tap clock, weather, etc.", "strip tap action open clock weather alarms immortal lyrics"),
+        Entry("STRIP", "Bottom bar", "Accent follows app", "Tint the strip from the foreground app icon", "accent colour color theme foreground app icon tint"),
+        Entry("STRIP", "Bottom bar", "Show strip", "Master toggle for the live-info status strip", "show strip status bar bottom bar enable on off"),
+        Entry("STRIP", "Bottom bar", "Position & style", "Top or bottom strip and 19 visual styles", "strip status bar style dense aurora sky position top bottom subtitles"),
+        Entry("STRIP", "Bottom bar", "Not the ticker", "Scrolling news ticker is a separate tab", "ticker news scroll feed rss not ticker bottom bar"),
+        Entry("STRIP", "Bottom bar", "Weather extras", "Rain, sunset, wind, UV, severe alert", "strip rain sunset wind uv alert weather open-meteo"),
+        Entry("STRIP", "Bottom bar", "Foreground app", "Tap active app for open, info, force stop", "strip foreground app package open force stop"),
+        Entry("STRIP", "Bottom bar", "ntfy preview", "Tap ntfy line for last push message", "strip ntfy notify preview last message"),
+        Entry("STRIP", "Bottom bar", "Nav buttons", "Back, home, recents on the strip", "strip nav back home recents buttons"),
+        Entry("STRIP", "Bottom bar", "Hide icon", "Eye-off control to collapse the strip", "hide icon collapse minimize bottom bar eye off strip"),
+        Entry("STRIP", "Bottom bar", "Restore pill", "Expand pill when strip is minimized", "restore pill expand chevron minimize collapsed strip arrow"),
+        Entry("STRIP", "Bottom bar", "Show bar if hidden", "Bring back a collapsed or dismissed strip", "restore strip show bar hidden collapsed"),
+        Entry("STRIP", "Bottom bar", "Indicators", "Streaming, VPN, Wi-Fi, network speed", "strip streaming vpn wifi network speed week"),
 
         Entry("TICKER", "Ticker", "Feed URL", "RSS, Atom, JSON, or finance watchlist", "ticker rss atom json feed url news"),
         Entry("TICKER", "Ticker", "Finance watchlist", "finance:crypto:BTC,ETH or finance:stocks:AAPL,TSLA", "ticker finance crypto stocks watchlist coingecko stooq bbc ap npr"),

@@ -22,8 +22,8 @@ android {
         applicationId = "com.portal.overlays"
         minSdk = 28
         targetSdk = 29
-        versionCode = 12
-        versionName = "1.8"
+        versionCode = 13
+        versionName = "1.9"
     }
 
     signingConfigs {

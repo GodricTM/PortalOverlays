@@ -111,7 +111,7 @@ private enum class Tab(val glyph: String, val label: String) {
     WIDGETS("W", "Widgets"),
     NOW_PLAYING("NP", "Now Playing"),
     SCREENSAVER("Z", "Screensaver"),
-    STRIP("S", "Status strip"),
+    STRIP("S", "Bottom bar"),
     TICKER("T", "Ticker"),
     SETTINGS("G", "Settings"),
     NOTIFY("N", "Notifications"),
@@ -344,7 +344,24 @@ private fun OnboardingOverlay(
                 onEnable = { openNotificationListenerSettings(context) }
             )
 
-            Spacer(Modifier.height(26.dp))
+            Spacer(Modifier.height(18.dp))
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(PANEL2).padding(18.dp),
+            ) {
+                Text("About the bottom bar", color = TEXT, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "A thin live-info bar runs along one screen edge by default (now at the top so " +
+                        "subtitles stay clear). To hide it: open the Bottom bar tab and turn off " +
+                        "Show strip — or tap the hide icon at the end of the bar. Flip RUNNING off at the top to " +
+                        "stop every overlay at once.",
+                    color = MUTED,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+
+            Spacer(Modifier.height(22.dp))
             Button(
                 onClick = onDone,
                 modifier = Modifier.fillMaxWidth().height(56.dp).focusRequester(doneFocus),
@@ -608,7 +625,7 @@ private fun SettingsSearchPanel(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("No matches", color = TEXT, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-                    Text("Try ntfy, screensaver, edge bar, wind, or labs", color = MUTED, fontSize = 14.sp,
+                    Text("Try bottom bar, ntfy, screensaver, edge bar, or labs", color = MUTED, fontSize = 14.sp,
                         modifier = Modifier.padding(top = 6.dp))
                 }
             }
@@ -1318,13 +1335,36 @@ private fun TickerTab(prefs: Prefs, accent: Color, syncTicker: () -> Unit) {
 
 @Composable
 private fun StripTab(prefs: Prefs, accent: Color, refresh: () -> Unit) {
-    Section("Status strip", "A thin live-info bar along one edge.") {
+    val context = LocalContext.current
+    Section(
+        "Status strip",
+        "The full-width bar some people call the \"bottom bar\" — clock, weather, and live status " +
+            "on top of any app. Not the same as the Ticker tab.",
+    ) {
         var on by remember { mutableStateOf(prefs.stripEnabled) }
         var top by remember { mutableStateOf(prefs.stripPosition == "top") }
         Toggle("Show strip", on, accent) { on = it; prefs.stripEnabled = it; refresh() }
         if (on) {
-            Segmented(listOf("Bottom", "Top"), if (top) 1 else 0, accent) {
-                top = it == 1; prefs.stripPosition = if (top) "top" else "bottom"; refresh()
+            Primary("Show bar if hidden", accent) {
+                OverlayService.send(context, OverlayService.ACTION_RESTORE_STRIP)
+            }
+            Text(
+                "Bar collapsed or restore pill gone? Tap above to bring it back.",
+                color = MUTED,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            Segmented(listOf("Top", "Bottom"), if (top) 0 else 1, accent) {
+                top = it == 0; prefs.stripPosition = if (top) "top" else "bottom"; refresh()
+            }
+            if (!top) {
+                Text(
+                    "Bottom placement can cover subtitles and on-screen controls. Use Top if that " +
+                        "gets in the way, or turn off Show strip above.",
+                    color = MUTED,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
+                )
             }
             var style by remember { mutableStateOf(prefs.stripStyle) }
             Text("Style", color = MUTED, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp))
@@ -1350,9 +1390,31 @@ private fun StripTab(prefs: Prefs, accent: Color, refresh: () -> Unit) {
             Toggle("Clock", c, accent) { c = it; prefs.stripShowClock = it; refresh() }
             Toggle("Date", d, accent) { d = it; prefs.stripShowDate = it; refresh() }
             Toggle("Foreground app / Portal UI", ctx, accent) { ctx = it; prefs.stripShowContext = it; refresh() }
-            Text("Tap the foreground-app label on the strip to open, inspect, or force-stop the app.",
-                color = MUTED, fontSize = 13.sp)
+            Text(
+                "Tap the foreground-app label to open its app menu. Pinned app icons appear on the " +
+                    "right side of the bar when configured below.",
+                color = MUTED,
+                fontSize = 13.sp,
+            )
             Toggle("Back / Home / Recents on strip", nav, accent) { nav = it; prefs.stripShowNavButtons = it; refresh() }
+            var hideBtn by remember { mutableStateOf(prefs.stripShowHideButton) }
+            var restorePill by remember { mutableStateOf(prefs.stripShowRestoreHandle) }
+            Toggle("Hide icon on strip", hideBtn, accent) {
+                hideBtn = it; prefs.stripShowHideButton = it; refresh()
+            }
+            Text(
+                "Eye-off icon at the bar edge — collapses the strip so subtitles and page bottoms stay clear.",
+                color = MUTED,
+                fontSize = 13.sp,
+            )
+            Toggle("Restore pill when minimized", restorePill, accent) {
+                restorePill = it; prefs.stripShowRestoreHandle = it; refresh()
+            }
+            Text(
+                "When minimized, a small expand pill appears at the screen edge. Turn off for a fully clean edge.",
+                color = MUTED,
+                fontSize = 13.sp,
+            )
             Toggle("Weather", w, accent) { w = it; prefs.stripShowWeather = it; refresh() }
             Toggle("Battery", b, accent) { b = it; prefs.stripShowBattery = it; refresh() }
             Toggle("Network speed", net, accent) { net = it; prefs.stripShowNetwork = it; refresh() }
@@ -1377,6 +1439,14 @@ private fun StripTab(prefs: Prefs, accent: Color, refresh: () -> Unit) {
             Toggle("ntfy status", n, accent) { n = it; prefs.stripShowNtfy = it; refresh() }
             Text("Tap the ntfy line on the strip to preview the last message.",
                 color = MUTED, fontSize = 13.sp)
+        }
+    }
+    if (prefs.stripEnabled) {
+        Section("Accent & shortcuts", "Optional strip tinting and quick-launch apps.") {
+            StripAccentAndPinsSection(prefs, accent, refresh)
+        }
+        Section("Strip tap actions", "Assign an app or preset to each tappable strip segment.") {
+            StripTapActionsSection(prefs, accent, refresh)
         }
     }
 }
@@ -1568,7 +1638,14 @@ private fun LookTab(prefs: Prefs, accent: Color, onAccent: (Color) -> Unit, refr
 private fun AboutTab(accent: Color, onCheck: () -> Unit = {}) {
     val ctx = LocalContext.current
     var releaseDownloads by remember { mutableStateOf<Long?>(null) }
-    val releaseTag = "v1.5"
+    val releaseTag =
+        remember {
+            "v${
+                runCatching {
+                    ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName
+                }.getOrNull() ?: "?"
+            }"
+        }
     LaunchedEffect(Unit) {
         UpdateChecker.fetchReleaseDownloadStats(releaseTag) { stats ->
             releaseDownloads = stats?.downloadCount
@@ -1650,7 +1727,7 @@ private fun Section(title: String, subtitle: String, content: @Composable () -> 
 }
 
 @Composable
-private fun Toggle(label: String, checked: Boolean, accent: Color, onChange: (Boolean) -> Unit) {
+internal fun Toggle(label: String, checked: Boolean, accent: Color, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label, color = TEXT, fontSize = 16.sp, modifier = Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onChange, colors = switchColors(accent))
@@ -1659,7 +1736,7 @@ private fun Toggle(label: String, checked: Boolean, accent: Color, onChange: (Bo
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-private fun Field(
+internal fun Field(
     label: String,
     value: String,
     placeholder: String,
@@ -1913,7 +1990,7 @@ private fun Primary(label: String, accent: Color, onClick: () -> Unit) {
 }
 
 @Composable
-private fun Ghost(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+internal fun Ghost(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Button(onClick = onClick, modifier = modifier.height(52.dp).padding(top = 6.dp),
         shape = RoundedCornerShape(13.dp), colors = ButtonDefaults.buttonColors(containerColor = PANEL2, contentColor = TEXT)) {
         Text(label, fontSize = 15.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)

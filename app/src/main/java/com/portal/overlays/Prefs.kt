@@ -164,9 +164,9 @@ class Prefs(context: Context) {
     // ---- status strip -----------------------------------------------------
     var stripEnabled: Boolean
         get() = bool("stripEnabled", true); set(v) = setBool("stripEnabled", v)
-    /** "bottom" or "top". Bottom by default — Portal's system pills live in the top strip. */
+    /** "bottom" or "top". Top by default — keeps the bottom edge clear for subtitles and video controls. */
     var stripPosition: String
-        get() = str("stripPosition", "bottom"); set(v) = setStr("stripPosition", v)
+        get() = str("stripPosition", "top"); set(v) = setStr("stripPosition", v)
     /** Visual style of the strip chrome. See OverlayService.stripStyleFor() for the catalogue. */
     var stripStyle: String
         get() = str("stripStyle", "default"); set(v) = setStr("stripStyle", v)
@@ -218,6 +218,37 @@ class Prefs(context: Context) {
     /** Put Back / Home / Recents buttons on the right side of the strip. */
     var stripShowNavButtons: Boolean
         get() = bool("stripShowNavButtons", true); set(v) = setBool("stripShowNavButtons", v)
+
+    /** Eye-off control at the strip edge — collapses the bar to a small restore pill. */
+    var stripShowHideButton: Boolean
+        get() = bool("stripShowHideButton", true); set(v) = setBool("stripShowHideButton", v)
+
+    /** When the strip is collapsed, show a small expand / dismiss pill on the screen edge. */
+    var stripShowRestoreHandle: Boolean
+        get() = bool("stripShowRestoreHandle", true); set(v) = setBool("stripShowRestoreHandle", v)
+
+    /** Tint the status strip background from the foreground app's icon colour. */
+    var stripAccentFollowApp: Boolean
+        get() = bool("stripAccentFollowApp", true); set(v) = setBool("stripAccentFollowApp", v)
+
+    /** Packages shown when tapping Foreground app on Home, or via the Pinned apps action (comma-separated). */
+    var stripPinnedApps: String
+        get() = str("stripPinnedApps", ""); set(v) = setStr("stripPinnedApps", v.trim())
+
+    fun stripPinnedAppList(): List<String> =
+        stripPinnedApps.split(',').map { it.trim() }.filter { it.isNotBlank() }.distinct().take(8)
+
+    fun setStripPinnedAppList(pkgs: List<String>) {
+        stripPinnedApps = pkgs.map { it.trim() }.filter { it.isNotBlank() }.distinct().take(8).joinToString(",")
+    }
+
+    /** Show pinned app icons as tappable chips on the right side of the strip. */
+    var stripShowPinnedIcons: Boolean
+        get() = bool("stripShowPinnedIcons", true); set(v) = setBool("stripShowPinnedIcons", v)
+
+    fun stripSegmentAction(key: String): String = str("stripAct_$key", "")
+
+    fun setStripSegmentAction(key: String, action: String) = setStr("stripAct_$key", action.trim())
 
     // ---- banners ----------------------------------------------------------
     var bannerSeconds: Int
