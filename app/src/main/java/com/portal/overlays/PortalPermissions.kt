@@ -1,6 +1,7 @@
 package com.portal.overlays
 
 import android.Manifest
+import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
 import android.provider.Settings
@@ -38,13 +39,18 @@ object PortalPermissions {
      */
     fun restoreAccessibilityService(context: Context): Boolean {
         val our = accessibilityComponent(context)
+        val ourComponent = ComponentName.unflattenFromString(our)
         return try {
             val resolver = context.contentResolver
             val current = Settings.Secure
                 .getString(resolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
                 .orEmpty()
             val listed = current.split(':').filter { it.isNotBlank() }
-            if (our !in listed) {
+            // Compare unflattened, not as raw strings: this list mixes notations. Portal writes
+            // its own services as "pkg/.Class" and later re-adds them as "pkg/pkg.Class", so a
+            // string match would miss an existing entry for us and append a second copy.
+            val alreadyListed = listed.any { ComponentName.unflattenFromString(it) == ourComponent }
+            if (!alreadyListed) {
                 Settings.Secure.putString(
                     resolver,
                     Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
