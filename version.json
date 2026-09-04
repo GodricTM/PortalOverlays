@@ -1,6 +1,6 @@
 {
-  "versionCode": 14,
-  "versionName": "1.9",
-  "apkUrl": "https://github.com/GodricTM/PortalOverlays/releases/download/v1.9/PortalOverlays-v1.9-release.apk",
-  "notes": "v1.9 - Bottom bar dock with reorder (drag ≡ or ↑↓) and long-press menu. Automatic update popup on launch when a new GitHub release is published (About → Updates to toggle). Plus strip tap actions, accent follows app, eye-off hide / expand restore, and pinned icons on the bar. See CHANGELOG.md."
+  "versionCode": 15,
+  "versionName": "1.9.1",
+  "apkUrl": "https://github.com/GodricTM/PortalOverlays/releases/download/v1.9.1/PortalOverlays-v1.9.1-release.apk",
+  "notes": "v1.9.1 - Banners are cards again instead of stretching the full width of the screen. Navigation now survives a reboot: grant WRITE_SECURE_SETTINGS once (run enable_portal_permissions.bat one time) and Overlays puts its own accessibility service back after every boot. Setup also no longer disables Portal's own Aloha and Immortal accessibility services. See CHANGELOG.md."
 }
