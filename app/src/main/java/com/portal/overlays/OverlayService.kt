@@ -2689,12 +2689,13 @@ class OverlayService : Service() {
     // ---- toast banner ----------------------------------------------------
 
     private fun showBanner(title: String, message: String, dismissSec: Int = prefs.bannerSeconds) {
+        val cardMax = cardWidthPx(0.44f, 280, 520)
+        val textMax = cardMax - dp(48)          // body padding, left + right
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(withAlpha(BANNER_BASE, prefs.overlayOpacity), prefs.cornerRadius)
             clipToOutline = true
             elevation = dp(10).toFloat()
-            minimumWidth = dp(420) // comfortable width so the notification text fits
         }
         card.addView(View(this).apply {
             setBackgroundColor(prefs.accentColor)
@@ -2706,17 +2707,20 @@ class OverlayService : Service() {
             setPadding(dp(24), dp(14), dp(24), dp(16))
         }
         body.addView(TextView(this).apply {
-            text = title; setTextColor(Color.WHITE); textSize = scaled(18f); maxWidth = dp(820)
+            text = title; setTextColor(Color.WHITE); textSize = scaled(18f); maxWidth = textMax
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         })
         if (message.isNotBlank()) body.addView(TextView(this).apply {
-            text = message; setTextColor(0xFFC2C8D2.toInt()); textSize = scaled(15f); maxWidth = dp(820); setPadding(0, dp(4), 0, 0)
+            text = message; setTextColor(0xFFC2C8D2.toInt()); textSize = scaled(15f); maxWidth = textMax; setPadding(0, dp(4), 0, 0)
         })
         card.addView(body)
 
+        // The card needs an explicit width: its accent strip is MATCH_PARENT, and under a
+        // WRAP_CONTENT parent that stretches the whole card to the full screen width (which is
+        // why the old dp() caps below never bound).
         val container = FrameLayout(this).apply { setPadding(dp(20), 0, dp(20), 0) }
         container.addView(card, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            cardMax, ViewGroup.LayoutParams.WRAP_CONTENT
         ).also { it.gravity = Gravity.CENTER_HORIZONTAL })
 
         val top = prefs.bannerPosition != "bottom"
@@ -3181,8 +3185,8 @@ class OverlayService : Service() {
         ))
 
         wrap.addView(card, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ))
+            cardWidthPx(0.5f, 300, 600), ViewGroup.LayoutParams.WRAP_CONTENT
+        ).also { it.gravity = Gravity.CENTER_HORIZONTAL })
         val lp = baseParams().apply {
             width = WindowManager.LayoutParams.MATCH_PARENT
             gravity = Gravity.TOP
@@ -3214,13 +3218,14 @@ class OverlayService : Service() {
 
         val red = 0xFFFF1F2D.toInt()
         val cardBg = withAlpha(0xFF1A0508.toInt(), prefs.overlayOpacity)
+        val cardMax = cardWidthPx(0.58f, 320, 680)   // wider than a normal banner, still a card
+        val textMax = cardMax - dp(48)
 
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(cardBg, prefs.cornerRadius)
             clipToOutline = true
             elevation = dp(18).toFloat()
-            minimumWidth = dp(520)
         }
 
         // Flashing red eyebrow band:  ● BREAKING NEWS
@@ -3247,17 +3252,19 @@ class OverlayService : Service() {
             setPadding(dp(24), dp(16), dp(24), dp(18))
         }
         body.addView(TextView(this).apply {
-            text = headline; setTextColor(Color.WHITE); textSize = scaled(22f); maxWidth = dp(900)
+            text = headline; setTextColor(Color.WHITE); textSize = scaled(22f); maxWidth = textMax
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         })
         if (sub.isNotBlank()) body.addView(TextView(this).apply {
-            text = sub; setTextColor(0xFFE6B8BC.toInt()); textSize = scaled(15f); maxWidth = dp(900); setPadding(0, dp(6), 0, 0)
+            text = sub; setTextColor(0xFFE6B8BC.toInt()); textSize = scaled(15f); maxWidth = textMax; setPadding(0, dp(6), 0, 0)
         })
         card.addView(body)
 
+        // Explicit width — the MATCH_PARENT eyebrow band would otherwise stretch the card
+        // across the whole screen (see showBanner).
         val container = FrameLayout(this).apply { setPadding(dp(20), 0, dp(20), 0) }
         container.addView(card, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            cardMax, ViewGroup.LayoutParams.WRAP_CONTENT
         ).also { it.gravity = Gravity.CENTER_HORIZONTAL })
 
         val lp = baseParams().apply {
@@ -4133,6 +4140,15 @@ class OverlayService : Service() {
     private fun withAlpha(color: Int, opacityPct: Int) = (color and 0x00FFFFFF) or ((255 * opacityPct / 100) shl 24)
     private fun scaled(size: Float) = size * prefs.textScale / 100f
     private fun dp(v: Int) = (v * resources.displayMetrics.density).roundToInt()
+
+    /** Width for a popup card, as a fraction of the current screen width and clamped to a dp
+     *  range. Banners are cards, not full-width bars — a fixed dp width that looks right on a
+     *  Portal Mini stretches most of the way across a Portal+/Portal TV. */
+    private fun cardWidthPx(fraction: Float, minDp: Int, maxDp: Int): Int {
+        val s = prefs.textScale / 100f          // bigger text needs a proportionally wider card
+        return (resources.displayMetrics.widthPixels * fraction).roundToInt()
+            .coerceIn(dp((minDp * s).roundToInt()), dp((maxDp * s).roundToInt()))
+    }
 
     private fun buildNotification(permissionNeeded: Boolean = false): Notification {
         val channelId = "overlays"
