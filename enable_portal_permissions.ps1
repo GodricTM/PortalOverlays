@@ -28,6 +28,7 @@ function Get-Status {
     $a11yBound = $a11yDump -match 'label=Overlays'
     $notifRaw = (& adb -s $serial shell settings get secure enabled_notification_listeners 2>$null) -join ''
     $notif    = $notifRaw -like "*$NotificationListener*"
+    $secure   = ((& adb -s $serial shell dumpsys package $Package 2>$null) -join "`n") -match 'WRITE_SECURE_SETTINGS: granted=true'
     return [pscustomobject]@{
         Alert      = [bool]$alerts
         A11ySet    = [bool]$a11ySet
@@ -35,13 +36,15 @@ function Get-Status {
         A11yBound  = [bool]$a11yBound
         A11y       = [bool]($a11ySet -and $a11yOn -and $a11yBound)
         Notif      = [bool]$notif
+        SelfHeal   = [bool]$secure
     }
 }
 
 function Show-Status($s, $label) {
-    Write-Host ("   {0,-6} :  draw-over={1,-5}  a11y-set={2,-5}  a11y-bound={3,-5}  notif={4,-5}" -f `
+    Write-Host ("   {0,-6} :  draw-over={1,-5}  a11y-set={2,-5}  a11y-bound={3,-5}  notif={4,-5}  self-heal={5,-5}" -f `
         $label, $s.Alert.ToString().ToLower(), $s.A11ySet.ToString().ToLower(), `
-        $s.A11yBound.ToString().ToLower(), $s.Notif.ToString().ToLower())
+        $s.A11yBound.ToString().ToLower(), $s.Notif.ToString().ToLower(), `
+        $s.SelfHeal.ToString().ToLower())
 }
 
 # ---- pre-flight ---------------------------------------------------------
@@ -102,9 +105,30 @@ if (-not $AccessibilityOnly) {
     }
 }
 
-Step "Writing accessibility service setting" {
-    & adb -s $serial shell settings put secure enabled_accessibility_services $AccessibilityService
+# One-time grant that lets the app put its own accessibility service back after every reboot,
+# so this script stops being a per-boot chore. protectionLevel is signature|privileged|development
+# and the 'development' flag is what makes an adb grant possible; it survives reboots.
+Step "Granting self-heal permission (WRITE_SECURE_SETTINGS)" {
+    & adb -s $serial shell pm grant $Package android.permission.WRITE_SECURE_SETTINGS 2>$null
+    $global:LASTEXITCODE = 0
+}
+
+# APPEND our service - never overwrite. Portal's own Aloha KeyEvent / Aloha Presence and the
+# Immortal launcher's BarWatch service live in this same colon-separated list, and replacing the
+# whole value silently disables them (which breaks Portal's system UI until the next reboot).
+Step "Adding accessibility service (preserving existing entries)" {
+    $current = (& adb -s $serial shell settings get secure enabled_accessibility_services 2>$null).Trim()
+    if ($current -eq 'null' -or [string]::IsNullOrWhiteSpace($current)) { $current = '' }
+    $entries = @($current -split ':' | Where-Object { $_ -and $_.Trim() })
+    if ($entries -contains $AccessibilityService) {
+        Write-Host "   already listed - leaving the value alone" -ForegroundColor DarkGray
+    } else {
+        $updated = (@($entries) + $AccessibilityService) -join ':'
+        Write-Host "   preserving $($entries.Count) existing service(s)" -ForegroundColor DarkGray
+        & adb -s $serial shell settings put secure enabled_accessibility_services $updated
+    }
     & adb -s $serial shell settings put secure accessibility_enabled 1
+    $global:LASTEXITCODE = 0
 }
 
 # ---- verify -------------------------------------------------------------
@@ -116,7 +140,9 @@ Show-Status $after "after "
 
 $daemonAlive = $false
 if (-not $AccessibilityOnly -and -not $NoDaemon) {
-    $hb = (& adb -s $serial shell cat /sdcard/Android/data/$Package/files/installq/.heartbeat 2>$null).Trim()
+    # cat returns nothing when the daemon has never run, so guard before .Trim().
+    $hbRaw = (& adb -s $serial shell cat /sdcard/Android/data/$Package/files/installq/.heartbeat 2>$null) -join ''
+    $hb = if ($null -eq $hbRaw) { '' } else { $hbRaw.Trim() }
     if ($hb -match '^\d+$') {
         $age = [int]([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - [int64]$hb)
         $daemonAlive = ($age -ge 0 -and $age -le 20)
@@ -128,6 +154,13 @@ if ($after.Alert -and $after.A11y -and $after.Notif) {
     Write-Host ""
     Write-Host "All three permissions granted and accessibility service is bound." -ForegroundColor Green
     Write-Host "Open Portal Overlays and tap Overlays running." -ForegroundColor Green
+    if ($after.SelfHeal) {
+        Write-Host "Self-heal is active - the app can restore its own accessibility service after a" -ForegroundColor Green
+        Write-Host "reboot, so you should not need to run this script again on this device." -ForegroundColor Green
+    } else {
+        Write-Host "Self-heal NOT active (WRITE_SECURE_SETTINGS was refused) - you'll need to re-run" -ForegroundColor DarkYellow
+        Write-Host "this script after each reboot. Reinstall a build that declares the permission." -ForegroundColor DarkYellow
+    }
     if ($daemonAlive) {
         Write-Host "Silent-install daemon is running - in-app updates will install with no dialog (until reboot)." -ForegroundColor Green
     } else {
@@ -141,6 +174,7 @@ if ($after.Alert -and $after.A11y -and $after.Notif) {
     if (-not $after.A11yOn)    { Write-Host "  - accessibility_enabled toggle" }
     if (-not $after.A11yBound) { Write-Host "  - accessibility service bound by AccessibilityServiceManager (dumpsys shows no 'Overlays' label)" }
     if (-not $after.Notif)     { Write-Host "  - notification listener" }
+    if (-not $after.SelfHeal)  { Write-Host "  - WRITE_SECURE_SETTINGS (self-heal after reboot; needs a build that declares it)" }
     Write-Host ""
     Write-Host "Things to try:" -ForegroundColor Yellow
     Write-Host "  1. The Portal AccessibilityServiceManager only picks up the setting once it has been initialised." -ForegroundColor Yellow

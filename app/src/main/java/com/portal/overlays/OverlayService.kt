@@ -202,6 +202,8 @@ class OverlayService : Service() {
     @Volatile private var lastNtfyMessage = ""
     @Volatile private var lastNtfyAtMs = 0L
     private var navWarningView: View? = null
+    private var navRestoreAttempts = 0
+    private var navLastRestoreAt = 0L
     private val trackHistory by lazy { TrackHistory(this) }
     private var lastTrackKey = ""
     /** Last cover-art identity applied to now-playing ImageViews (URI, embedded track key, or none key). */
@@ -3133,6 +3135,39 @@ class OverlayService : Service() {
             navWarningView?.let { safeRemove(it); navWarningView = null }
             return
         }
+        if (NavAccessibilityService.isEnabled) {
+            navRestoreAttempts = 0
+            navLastRestoreAt = 0L
+        }
+
+        // Self-heal before nagging: Portal can wipe the setting after BOOT_COMPLETED has already
+        // been delivered, so the boot-time restore isn't enough on its own. With
+        // WRITE_SECURE_SETTINGS granted this rebinds the service and the warning never appears.
+        //
+        // This runs off the 1s tick, so it is bounded two ways: a cooldown between attempts (the
+        // manager binds asynchronously and needs time), and a hard attempt cap, because writing
+        // the setting doesn't guarantee a bind — if it never happens the warning must get through.
+        if (navFeaturesWanted() && !NavAccessibilityService.isEnabled) {
+            val now = System.currentTimeMillis()
+            if (navRestoreAttempts < MAX_NAV_RESTORE_ATTEMPTS &&
+                now - navLastRestoreAt > NAV_RESTORE_COOLDOWN_MS
+            ) {
+                navLastRestoreAt = now
+                if (PortalPermissions.restoreAccessibilityService(this)) {
+                    navRestoreAttempts++
+                    prefs.accessibilityBootRestoreFailed = false
+                } else {
+                    navRestoreAttempts = MAX_NAV_RESTORE_ATTEMPTS  // no permission; stop trying
+                    prefs.accessibilityBootRestoreFailed = true
+                }
+            }
+            // Stay quiet while a just-written setting still has a chance to bind.
+            if (navLastRestoreAt > 0L && now - navLastRestoreAt < NAV_BIND_GRACE_MS) {
+                navWarningView?.let { safeRemove(it); navWarningView = null }
+                return
+            }
+        }
+
         val need = navFeaturesWanted() && !NavAccessibilityService.isEnabled && !prefs.navWarningDismissed
         if (!need) {
             if (NavAccessibilityService.isEnabled) prefs.navWarningDismissed = false
@@ -3154,12 +3189,13 @@ class OverlayService : Service() {
             textSize = scaled(16f)
             typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
         })
-        val detail = if (prefs.accessibilityBootRestoreFailed) {
-            "Portal wiped the accessibility service on boot and the app couldn't restore it. " +
-                "Re-run enable_portal_permissions.bat from a PC — Back / Home / Recents won't work until then."
+        val detail = if (!PortalPermissions.canWriteSecureSettings(this)) {
+            "Portal wipes the accessibility service on every boot and the app isn't allowed to put " +
+                "it back. Run enable_portal_permissions.bat from a PC once — it grants the one " +
+                "permission that lets Overlays repair this by itself from then on."
         } else {
-            "The Overlays accessibility service isn't running. Re-run enable_portal_permissions.bat " +
-                "from a PC (Portal clears it after every reboot)."
+            "Portal wiped the accessibility service and it didn't rebind. Re-run " +
+                "enable_portal_permissions.bat from a PC — Back / Home / Recents won't work until then."
         }
         card.addView(TextView(this).apply {
             text = detail
@@ -4204,6 +4240,11 @@ class OverlayService : Service() {
         const val KIND_REMINDER = "reminder"
 
         private const val NOTIF_ID = 1001
+        /** Writing the secure setting doesn't guarantee the manager binds; give up after this. */
+        private const val MAX_NAV_RESTORE_ATTEMPTS = 3
+        private const val NAV_RESTORE_COOLDOWN_MS = 10_000L
+        /** How long a freshly written setting gets to bind before we show the warning. */
+        private const val NAV_BIND_GRACE_MS = 6_000L
         private val CARD_BASE = 0xFF1B1E24.toInt()
         private val BANNER_BASE = 0xFF22262E.toInt()
         private val STRIP_BASE = 0xFF101216.toInt()

@@ -13,6 +13,12 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Lets the app re-enable its own accessibility service after a reboot: Portal wipes
+         enabled_accessibility_services on every boot. protectionLevel includes 'development',
+         so a sideloaded build can hold it once granted over adb:
+             adb shell pm grant com.portal.overlays android.permission.WRITE_SECURE_SETTINGS
+         Without that one-time grant this is inert, and BootReceiver falls back to warning. -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
 
     <!-- Runs on both touch Portals and the TV-stick Portal TV (leanback). -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />

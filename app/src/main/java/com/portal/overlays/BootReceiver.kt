@@ -3,13 +3,16 @@ package com.portal.overlays
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.provider.Settings
 
 /**
  * Relaunches the overlay service after a reboot if the user had it enabled,
  * and re-asserts the accessibility service setting (Portal wipes
  * enabled_accessibility_services on every boot, so the AccessibilityServiceManager
  * has nothing to bind until the value is written again).
+ *
+ * The write needs WRITE_SECURE_SETTINGS — see [PortalPermissions]. Portal can also wipe the
+ * setting *after* BOOT_COMPLETED is delivered, so OverlayService retries this on its own whenever
+ * it notices the service is unbound; this receiver is the first attempt, not the only one.
  */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
@@ -18,21 +21,9 @@ class BootReceiver : BroadcastReceiver() {
             intent?.action != "com.htc.intent.action.QUICKBOOT_POWERON") return
 
         val prefs = Prefs(context)
-        try {
-            val resolver = context.contentResolver
-            val our = "${context.packageName}/${context.packageName}.NavAccessibilityService"
-            val current = Settings.Secure.getString(resolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
-            val flattened = current.split(':').filter { it.isNotBlank() }
-            if (our !in flattened) {
-                val updated = (flattened + our).joinToString(":")
-                Settings.Secure.putString(resolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, updated)
-                Settings.Secure.putInt(resolver, Settings.Secure.ACCESSIBILITY_ENABLED, 1)
-            }
+        if (PortalPermissions.restoreAccessibilityService(context)) {
             prefs.accessibilityBootRestoreFailed = false
-        } catch (_: SecurityException) {
-            // WRITE_SECURE_SETTINGS is signature/privileged; adb shell has it but a regular
-            // app does not. The setting still gets restored by enable_portal_permissions.ps1
-            // on the next adb session, so this is a best-effort attempt.
+        } else {
             prefs.accessibilityBootRestoreFailed = true
             prefs.navWarningDismissed = false
         }
