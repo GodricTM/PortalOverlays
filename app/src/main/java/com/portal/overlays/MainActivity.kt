@@ -1636,9 +1636,11 @@ private fun NotifyTab(context: android.content.Context, prefs: Prefs, accent: Co
 @Composable
 private fun NavTab(context: android.content.Context, prefs: Prefs, accent: Color, accEnabled: Boolean, refresh: () -> Unit) {
     if (!accEnabled) Hint(
-        "Navigation buttons need the accessibility service. Enable it from a computer:\n" +
-        "metavr adb shell settings put secure enabled_accessibility_services com.portal.overlays/com.portal.overlays.NavAccessibilityService\n" +
-        "metavr adb shell settings put secure accessibility_enabled 1"
+        "Navigation buttons need the accessibility service. Run enable_portal_permissions.bat " +
+        "from a computer once — it grants the permission that lets Overlays put the service back " +
+        "by itself after every reboot, so you only need to do this one time.\n\n" +
+        "Don't write enabled_accessibility_services by hand: that setting also lists Portal's own " +
+        "services, and replacing the value instead of adding to it disables them."
     )
     Section("🧭  Floating navigation", "Draggable buttons that act on any app.") {
         var on by remember { mutableStateOf(prefs.navEnabled) }
@@ -1788,11 +1790,17 @@ private fun AboutTab(prefs: Prefs, accent: Color, onCheck: () -> Unit = {}) {
     Section("One-time permissions (adb)", "Or grant from a computer over adb.") {
         Code("metavr adb shell appops set com.portal.overlays SYSTEM_ALERT_WINDOW allow")
         Spacer(Modifier.height(8.dp))
-        Code("metavr adb shell settings put secure enabled_accessibility_services com.portal.overlays/com.portal.overlays.NavAccessibilityService")
-        Spacer(Modifier.height(8.dp))
-        Code("metavr adb shell settings put secure accessibility_enabled 1")
-        Spacer(Modifier.height(8.dp))
         Code("metavr adb shell cmd notification allow_listener com.portal.overlays/com.portal.overlays.NotifyListenerService")
+        Spacer(Modifier.height(8.dp))
+        Code("metavr adb shell pm grant com.portal.overlays android.permission.WRITE_SECURE_SETTINGS")
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "That last one is what lets Overlays re-enable its own accessibility service after " +
+            "Portal wipes it on boot — grant it once and navigation keeps working on its own. " +
+            "Avoid setting enabled_accessibility_services directly: Portal's own services share " +
+            "that value and overwriting it turns them off.",
+            color = MUTED, fontSize = 14.sp
+        )
     }
     Section("Credits", "") {
         Text("Open-Meteo for weather · ntfy.sh for push · made for the Portal sideloading community.",

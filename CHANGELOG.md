@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-09-04
+
+### Fixed
+- **Banners were full-screen width** — the accent strip along the top of a banner card is
+  `MATCH_PARENT`, and under a `WRAP_CONTENT` card that stretched the whole card across the display
+  (1888px of 1920 on a Portal+). The existing width caps were dead code as a result. Banner,
+  breaking-news and nav-warning cards now take an explicit width scaled to the screen and the
+  text-size setting, so they read as cards on a Portal+ / Portal TV without cramping a Portal Mini.
+- **Accessibility service now restores itself after a reboot** — Portal clears
+  `enabled_accessibility_services` on every boot, which killed Back / Home / Recents until
+  `enable_portal_permissions.bat` was re-run from a PC. Granting `WRITE_SECURE_SETTINGS` once over
+  adb lets the app put the service back on its own, on every boot afterwards. Run the script one
+  time per device; it now performs that grant for you.
+- **Setup no longer disables Portal's own accessibility services** — the script, and the adb
+  commands shown in-app, replaced the whole `enabled_accessibility_services` value instead of
+  adding to it, silently turning off Portal's Aloha KeyEvent / Aloha Presence and the Immortal
+  launcher's BarWatch services. Both now append, and report how many entries they preserved.
+- **enable_portal_permissions.ps1** — no longer throws part-way through verification when the
+  silent-install daemon has never run.
+
 ## [1.9] - 2026-07-12
 
 ### Added
